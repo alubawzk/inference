@@ -2,12 +2,12 @@
 
 void Inference::subs_joy_callback(const std::shared_ptr<sensor_msgs::msg::Joy> msg) {
     std::unique_lock lock(infer_mutex_);
-    vx_ = msg->axes[3] * 0.2;
-    vy_ = msg->axes[2] * 0.2;
+    vx_ = msg->axes[3] * 0.3;
+    vy_ = msg->axes[2] * 0.3;
     if (msg->buttons[6] == 1) {
-        dyaw_ = msg->buttons[6] * 0.4;
+        dyaw_ = msg->buttons[6] * 0.8;
     } else if (msg->buttons[7] == 1) {
-        dyaw_ = -msg->buttons[7] * 0.4;
+        dyaw_ = -msg->buttons[7] * 0.8;
     } else {
         dyaw_ = 0.0;
     }
@@ -192,8 +192,6 @@ void Inference::inference() {
             output[i] = std::clamp(output[i], -clip_actions_, clip_actions_);
             act_[usd2urdf_[i]] = output[i];
             act_[usd2urdf_[i]] = act_[usd2urdf_[i]] * action_scale_;
-            act_[usd2urdf_[i]] = std::max(joint_lower_limit_[usd2urdf_[i]],
-                                          std::min(act_[usd2urdf_[i]], joint_higher_limit_[usd2urdf_[i]]));
         }
         last_output_ = output;
     }

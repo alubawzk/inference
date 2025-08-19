@@ -25,8 +25,6 @@ class Inference : public rclcpp::Node {
         right_arm_obs_.resize(10);
         imu_obs_.resize(7);
         imu_obs_[0] = 1.0, imu_obs_[1] = 0.0, imu_obs_[2] = 0.0, imu_obs_[3] = 0.0;
-        joint_lower_limit_.resize(23);
-        joint_higher_limit_.resize(23);
         usd2urdf_.resize(23);
         last_output_.resize(23);
         step_ = 0;
@@ -51,14 +49,6 @@ class Inference : public rclcpp::Node {
         this->declare_parameter<float>("clip_observations", 100.0);
         this->declare_parameter<float>("action_scale", 0.3);
         this->declare_parameter<float>("clip_actions", 18.0);
-        this->declare_parameter<std::vector<float>>(
-            "joint_lower_limit",
-            std::vector<float>{-0.2,  -0.2, -2.5,  0.0,  -0.6,  -0.5,  -1.0, -2.0,  -2.5, 0.0,   -0.6, -0.5,
-                               -2.62, -2.0, -0.25, -2.6, -1.00, -1.57, -2.0, -2.25, -2.6, -1.00, -1.57});
-        this->declare_parameter<std::vector<float>>(
-            "joint_higher_limit",
-            std::vector<float>{1.0,  2.0, 0.8,  2.5, 0.6,  0.5,  0.2, 0.2,  0.8, 2.5,  0.6, 0.5,
-                               2.62, 2.0, 2.25, 2.6, 1.57, 1.57, 2.0, 0.25, 2.6, 1.57, 1.57});
         this->declare_parameter<std::vector<long int>>(
             "usd2urdf", std::vector<long int>{0, 6,  12, 1, 7,  13, 18, 2, 8,  14, 19, 3,
                                               9, 15, 20, 4, 10, 16, 21, 5, 11, 17, 22});
@@ -82,13 +72,6 @@ class Inference : public rclcpp::Node {
         this->get_parameter("clip_observations", clip_observations_);
         this->get_parameter("action_scale", action_scale_);
         this->get_parameter("clip_actions", clip_actions_);
-        std::vector<double> tmp;
-        this->get_parameter("joint_lower_limit", tmp);
-        std::transform(tmp.begin(), tmp.end(), joint_lower_limit_.begin(),
-                       [](double val) { return static_cast<float>(val); });
-        this->get_parameter("joint_higher_limit", tmp);
-        std::transform(tmp.begin(), tmp.end(), joint_higher_limit_.begin(),
-                       [](double val) { return static_cast<float>(val); });
         this->get_parameter("usd2urdf", usd2urdf_);
 
         model_path_ = std::string(ROOT_DIR) + "models/" + model_name_;
@@ -110,27 +93,6 @@ class Inference : public rclcpp::Node {
         RCLCPP_INFO(this->get_logger(), "obs_scales_gravity_b: %f", obs_scales_gravity_b_);
         RCLCPP_INFO(this->get_logger(), "action_scale: %f", action_scale_);
         RCLCPP_INFO(this->get_logger(), "clip_actions: %f", clip_actions_);
-        RCLCPP_INFO(
-            this->get_logger(),
-            "joint_lower_limit: %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, "
-            "%f, %f, %f, %f",
-            joint_lower_limit_[0], joint_lower_limit_[1], joint_lower_limit_[2], joint_lower_limit_[3],
-            joint_lower_limit_[4], joint_lower_limit_[5], joint_lower_limit_[6], joint_lower_limit_[7],
-            joint_lower_limit_[8], joint_lower_limit_[9], joint_lower_limit_[10], joint_lower_limit_[11],
-            joint_lower_limit_[12], joint_lower_limit_[13], joint_lower_limit_[14], joint_lower_limit_[15],
-            joint_lower_limit_[16], joint_lower_limit_[17], joint_lower_limit_[18], joint_lower_limit_[19],
-            joint_lower_limit_[20], joint_lower_limit_[21], joint_lower_limit_[22]);
-        RCLCPP_INFO(this->get_logger(),
-                    "joint_higher_limit: %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, "
-                    "%f, %f, %f, %f, %f, %f",
-                    joint_higher_limit_[0], joint_higher_limit_[1], joint_higher_limit_[2],
-                    joint_higher_limit_[3], joint_higher_limit_[4], joint_higher_limit_[5],
-                    joint_higher_limit_[6], joint_higher_limit_[7], joint_higher_limit_[8],
-                    joint_higher_limit_[9], joint_higher_limit_[10], joint_higher_limit_[11],
-                    joint_higher_limit_[12], joint_higher_limit_[13], joint_higher_limit_[14],
-                    joint_higher_limit_[15], joint_higher_limit_[16], joint_higher_limit_[17],
-                    joint_higher_limit_[18], joint_higher_limit_[19], joint_higher_limit_[20],
-                    joint_higher_limit_[21], joint_higher_limit_[22]);
         RCLCPP_INFO(this->get_logger(),
                     "usd2urdf: %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, %ld, "
                     "%ld, %ld, %ld, %ld",
@@ -218,7 +180,6 @@ class Inference : public rclcpp::Node {
     float obs_scales_lin_vel_, obs_scales_ang_vel_, obs_scales_dof_pos_, obs_scales_dof_vel_,
         obs_scales_gravity_b_, clip_observations_;
     float action_scale_, clip_actions_;
-    std::vector<float> joint_lower_limit_, joint_higher_limit_;
     std::vector<long int> usd2urdf_;
     std::shared_mutex infer_mutex_;
     float last_roll_, last_pitch_, last_yaw_;
