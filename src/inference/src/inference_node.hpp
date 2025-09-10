@@ -153,6 +153,7 @@ class Inference : public rclcpp::Node {
     ~Inference() {}
 
    private:
+    bool is_running_ = false;
     std::string model_name_, model_path_;
     int frame_stack_;
     int decimation_;

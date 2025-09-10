@@ -11,6 +11,22 @@ void Inference::subs_joy_callback(const std::shared_ptr<sensor_msgs::msg::Joy> m
     } else {
         dyaw_ = 0.0;
     }
+    if (msg->buttons[0] == 1) {
+        is_running_ = false;
+        RCLCPP_INFO(this->get_logger(), "Inference paused");
+    }
+    if (msg->buttons[1] == 1) {
+        is_running_ = false;
+        RCLCPP_INFO(this->get_logger(), "Inference paused");
+    }
+    if (msg->buttons[2] == 1) {
+        is_running_ = !is_running_;
+        RCLCPP_INFO(this->get_logger(), is_running_ ? "Inference started" : "Inference paused");
+    }
+    if (msg->buttons[3] == 1) {
+        is_running_ = false;
+        RCLCPP_INFO(this->get_logger(), "Inference paused");
+    }
 }
 
 void Inference::subs_left_leg_callback(const std::shared_ptr<sensor_msgs::msg::JointState> msg) {
@@ -110,6 +126,12 @@ void Inference::get_gravity_b() {
 }
 
 void Inference::inference() {
+    if(!is_running_){
+        last_output_ = std::vector<float>(23, 0.0);
+        last_act_ = std::vector<float>(23, 0.0);
+        is_first_frame_ = true;
+        return;
+    }
     if (step_ % decimation_ == 0) {
         {
             std::shared_lock lock(infer_mutex_);
@@ -206,6 +228,7 @@ void Inference::inference() {
 int main(int argc, char **argv) {
     rclcpp::init(argc, argv);
     auto node = std::make_shared<Inference>();
+    RCLCPP_INFO(node->get_logger(), "Press 'B' to start/pause inference");
     rclcpp::spin(node);
     rclcpp::shutdown();
     return 0;
