@@ -160,7 +160,9 @@ void InferenceNode::inference() {
     if (step_ % decimation_ == 0) {
         {
             auto new_write_buffer = std::make_shared<SensorData>();
-            auto read_buffer = std::atomic_exchange(&write_buffer_, new_write_buffer);
+            auto read_buffer = std::atomic_load(&write_buffer_);
+            *new_write_buffer = *read_buffer;
+            std::atomic_store(&write_buffer_, new_write_buffer);
             for (int i = 0; i < 3; i++) {
                 obs_[i] = read_buffer->imu_obs[4 + i] * obs_scales_ang_vel_;
             }
