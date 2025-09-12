@@ -1,6 +1,6 @@
 #include "inference_node.hpp"
 
-void Inference::subs_joy_callback(const std::shared_ptr<sensor_msgs::msg::Joy> msg) {
+void InferenceNode::subs_joy_callback(const std::shared_ptr<sensor_msgs::msg::Joy> msg) {
     std::unique_lock lock(infer_mutex_);
     vx_ = msg->axes[3] * 0.3;
     vy_ = msg->axes[2] * 0.3;
@@ -29,7 +29,7 @@ void Inference::subs_joy_callback(const std::shared_ptr<sensor_msgs::msg::Joy> m
     }
 }
 
-void Inference::subs_left_leg_callback(const std::shared_ptr<sensor_msgs::msg::JointState> msg) {
+void InferenceNode::subs_left_leg_callback(const std::shared_ptr<sensor_msgs::msg::JointState> msg) {
     std::unique_lock lock(infer_mutex_);
     for (int i = 0; i < 6; i++) {
         if (msg->position[i] > joint_limits_upper_[i] || msg->position[i] < joint_limits_lower_[i]){
@@ -42,7 +42,7 @@ void Inference::subs_left_leg_callback(const std::shared_ptr<sensor_msgs::msg::J
     }
 }
 
-void Inference::subs_right_leg_callback(const std::shared_ptr<sensor_msgs::msg::JointState> msg) {
+void InferenceNode::subs_right_leg_callback(const std::shared_ptr<sensor_msgs::msg::JointState> msg) {
     std::unique_lock lock(infer_mutex_);
     for (int i = 0; i < 7; i++) {
         if (msg->position[i] > joint_limits_upper_[6+i] || msg->position[i] < joint_limits_lower_[6+i]){
@@ -55,7 +55,7 @@ void Inference::subs_right_leg_callback(const std::shared_ptr<sensor_msgs::msg::
     }
 }
 
-void Inference::subs_left_arm_callback(const std::shared_ptr<sensor_msgs::msg::JointState> msg) {
+void InferenceNode::subs_left_arm_callback(const std::shared_ptr<sensor_msgs::msg::JointState> msg) {
     std::unique_lock lock(infer_mutex_);
     for (int i = 0; i < 5; i++) {
         if (msg->position[i] > joint_limits_upper_[13+i] || msg->position[i] < joint_limits_lower_[13+i]){
@@ -68,7 +68,7 @@ void Inference::subs_left_arm_callback(const std::shared_ptr<sensor_msgs::msg::J
     }
 }
 
-void Inference::subs_right_arm_callback(const std::shared_ptr<sensor_msgs::msg::JointState> msg) {
+void InferenceNode::subs_right_arm_callback(const std::shared_ptr<sensor_msgs::msg::JointState> msg) {
     std::unique_lock lock(infer_mutex_);
     for (int i = 0; i < 5; i++) {
         if (msg->position[i] > joint_limits_upper_[18+i] || msg->position[i] < joint_limits_lower_[18+i]){
@@ -81,7 +81,7 @@ void Inference::subs_right_arm_callback(const std::shared_ptr<sensor_msgs::msg::
     }
 }
 
-void Inference::subs_IMU_callback(const std::shared_ptr<sensor_msgs::msg::Imu> msg) {
+void InferenceNode::subs_IMU_callback(const std::shared_ptr<sensor_msgs::msg::Imu> msg) {
     std::unique_lock lock(infer_mutex_);
     imu_obs_[0] = msg->orientation.w;
     imu_obs_[1] = msg->orientation.x;
@@ -92,7 +92,7 @@ void Inference::subs_IMU_callback(const std::shared_ptr<sensor_msgs::msg::Imu> m
     imu_obs_[6] = gyro_alpha_ * msg->angular_velocity.z + (1 - gyro_alpha_) * imu_obs_[6];
 }
 
-void Inference::publish_joint_states() {
+void InferenceNode::publish_joint_states() {
     auto left_leg_message = sensor_msgs::msg::JointState();
     left_leg_message.header.stamp = this->now();
     left_leg_message.name = {"joint1", "joint2", "joint3", "joint4", "joint5", "joint6"};
@@ -126,7 +126,7 @@ void Inference::publish_joint_states() {
     right_arm_publisher_->publish(right_arm_message);
 }
 
-void Inference::get_gravity_b() {
+void InferenceNode::get_gravity_b() {
     float w, x, y, z;
     w = imu_obs_[0];
     x = imu_obs_[1];
@@ -150,7 +150,7 @@ void Inference::get_gravity_b() {
     // RCLCPP_INFO(this->get_logger(), "gravity_b: %f %f %f", obs_[44], obs_[45], obs_[46]);
 }
 
-void Inference::inference() {
+void InferenceNode::inference() {
     if(!is_running_){
         last_output_ = std::vector<float>(23, 0.0);
         last_act_ = std::vector<float>(23, 0.0);
@@ -252,7 +252,7 @@ void Inference::inference() {
 
 int main(int argc, char **argv) {
     rclcpp::init(argc, argv);
-    auto node = std::make_shared<Inference>();
+    auto node = std::make_shared<InferenceNode>();
     RCLCPP_INFO(node->get_logger(), "Press 'B' to start inference");
     rclcpp::spin(node);
     rclcpp::shutdown();

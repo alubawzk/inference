@@ -18,7 +18,7 @@ def generate_launch_description():
             Node(
                 package="inference",
                 executable="inference_node",
-                name="Inference",
+                name="inference_node",
                 parameters=[config],
                 output="screen",
             ),

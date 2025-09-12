@@ -13,9 +13,9 @@
 #include <sensor_msgs/msg/joy.hpp>
 #include <vector>
 
-class Inference : public rclcpp::Node {
+class InferenceNode : public rclcpp::Node {
    public:
-    Inference() : Node("inference_node") {
+    InferenceNode() : Node("inference_node") {
         obs_.resize(78);
         act_.resize(23);
         last_act_.resize(23);
@@ -126,34 +126,36 @@ class Inference : public rclcpp::Node {
             output_names_[i] = output_name.get();
         }
 
+        auto sensor_data_qos = rclcpp::QoS(rclcpp::KeepLast(1)).best_effort().durability_volatile();
+        auto control_command_qos = rclcpp::QoS(rclcpp::KeepLast(1)).reliable().durability_volatile();
         left_leg_subscription_ = this->create_subscription<sensor_msgs::msg::JointState>(
-            "/joint_states_left_leg", 1,
-            std::bind(&Inference::subs_left_leg_callback, this, std::placeholders::_1));
+            "/joint_states_left_leg", sensor_data_qos,
+            std::bind(&InferenceNode::subs_left_leg_callback, this, std::placeholders::_1));
         right_leg_subscription_ = this->create_subscription<sensor_msgs::msg::JointState>(
-            "/joint_states_right_leg", 1,
-            std::bind(&Inference::subs_right_leg_callback, this, std::placeholders::_1));
+            "/joint_states_right_leg", sensor_data_qos,
+            std::bind(&InferenceNode::subs_right_leg_callback, this, std::placeholders::_1));
         left_arm_subscription_ = this->create_subscription<sensor_msgs::msg::JointState>(
-            "/joint_states_left_arm", 1,
-            std::bind(&Inference::subs_left_arm_callback, this, std::placeholders::_1));
+            "/joint_states_left_arm", sensor_data_qos,
+            std::bind(&InferenceNode::subs_left_arm_callback, this, std::placeholders::_1));
         right_arm_subscription_ = this->create_subscription<sensor_msgs::msg::JointState>(
-            "/joint_states_right_arm", 1,
-            std::bind(&Inference::subs_right_arm_callback, this, std::placeholders::_1));
+            "/joint_states_right_arm", sensor_data_qos,
+            std::bind(&InferenceNode::subs_right_arm_callback, this, std::placeholders::_1));
         IMU_subscription_ = this->create_subscription<sensor_msgs::msg::Imu>(
-            "/IMU_data", 1, std::bind(&Inference::subs_IMU_callback, this, std::placeholders::_1));
+            "/IMU_data", sensor_data_qos, std::bind(&InferenceNode::subs_IMU_callback, this, std::placeholders::_1));
         joy_subscription_ = this->create_subscription<sensor_msgs::msg::Joy>(
-            "/joy", 1, std::bind(&Inference::subs_joy_callback, this, std::placeholders::_1));
+            "/joy", sensor_data_qos, std::bind(&InferenceNode::subs_joy_callback, this, std::placeholders::_1));
         left_leg_publisher_ =
-            this->create_publisher<sensor_msgs::msg::JointState>("/joint_command_left_leg", 1);
+            this->create_publisher<sensor_msgs::msg::JointState>("/joint_command_left_leg", control_command_qos);
         right_leg_publisher_ =
-            this->create_publisher<sensor_msgs::msg::JointState>("/joint_command_right_leg", 1);
+            this->create_publisher<sensor_msgs::msg::JointState>("/joint_command_right_leg", control_command_qos);
         left_arm_publisher_ =
-            this->create_publisher<sensor_msgs::msg::JointState>("/joint_command_left_arm", 1);
+            this->create_publisher<sensor_msgs::msg::JointState>("/joint_command_left_arm", control_command_qos);
         right_arm_publisher_ =
-            this->create_publisher<sensor_msgs::msg::JointState>("/joint_command_right_arm", 1);
+            this->create_publisher<sensor_msgs::msg::JointState>("/joint_command_right_arm", control_command_qos);
         timer_ = this->create_wall_timer(std::chrono::milliseconds((int)(dt_ * 1000)),
-                                         std::bind(&Inference::inference, this));
+                                         std::bind(&InferenceNode::inference, this));
     }
-    ~Inference() {}
+    ~InferenceNode() {}
 
    private:
     bool is_running_ = false;
