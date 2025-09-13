@@ -94,14 +94,20 @@ class InferenceNode : public rclcpp::Node {
                     usd2urdf_[6], usd2urdf_[7], usd2urdf_[8], usd2urdf_[9], usd2urdf_[10], usd2urdf_[11],
                     usd2urdf_[12], usd2urdf_[13], usd2urdf_[14], usd2urdf_[15], usd2urdf_[16], usd2urdf_[17],
                     usd2urdf_[18], usd2urdf_[19], usd2urdf_[20], usd2urdf_[21], usd2urdf_[22]);
-
-        env_ = Ort::Env(ORT_LOGGING_LEVEL_WARNING, "ONNXRuntimeInference");
-        Ort::SessionOptions session_options;
+        
+        Ort::ThreadingOptions thread_opts;
+        thread_opts.SetGlobalSpinControl(false);
         if (intra_threads_ > 0) {
-            session_options.SetIntraOpNumThreads(intra_threads_);
+            thread_opts.SetGlobalIntraOpNumThreads(intra_threads_);
         }
+        env_ = std::make_unique<Ort::Env>(thread_opts, ORT_LOGGING_LEVEL_WARNING, "ONNXRuntimeInference");
+        Ort::SessionOptions session_options;
+        session_options.DisablePerSessionThreads();
+        session_options.EnableCpuMemArena();
+        session_options.EnableMemPattern();
+        // session_options.EnableProfiling("onnxruntime_profile.json");
         session_options.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
-        session_ = std::make_unique<Ort::Session>(env_, model_path_.c_str(), session_options);
+        session_ = std::make_unique<Ort::Session>(*env_, model_path_.c_str(), session_options);
         num_inputs_ = session_->GetInputCount();
         input_names_.resize(num_inputs_);
         for (size_t i = 0; i < num_inputs_; i++) {
@@ -158,11 +164,11 @@ class InferenceNode : public rclcpp::Node {
         std::vector<float> imu_obs = std::vector<float>(7, 0.0);
     };
     std::shared_ptr<SensorData> write_buffer_;
-    bool is_running_ = false;
+    std::atomic<bool> is_running_{false};
     std::string model_name_, model_path_;
     int frame_stack_;
     int decimation_;
-    Ort::Env env_;
+    std::unique_ptr<Ort::Env> env_;
     std::unique_ptr<Ort::Session> session_;
     std::vector<std::string> input_names_, output_names_;
     size_t num_inputs_, num_outputs_;
@@ -185,10 +191,10 @@ class InferenceNode : public rclcpp::Node {
         obs_scales_gravity_b_, clip_observations_;
     float action_scale_, clip_actions_;
     std::vector<long int> usd2urdf_;
-    float last_roll_, last_pitch_, last_yaw_;
     bool is_first_frame_;
     std::vector<float> joint_limits_lower_, joint_limits_upper_;
     float gravity_z_upper_;
+    int last_button0_ = 0, last_button1_ = 0, last_button2_ = 0, last_button3_ = 0;
 
     void subs_joy_callback(const std::shared_ptr<sensor_msgs::msg::Joy> msg);
     void subs_left_leg_callback(const std::shared_ptr<sensor_msgs::msg::JointState> msg);
