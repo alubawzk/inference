@@ -17,6 +17,7 @@ void InferenceNode::subs_joy_callback(const std::shared_ptr<sensor_msgs::msg::Jo
     }
     if (msg->buttons[1] == 1 && msg->buttons[1] != last_button1_) {
         is_running_.store(false);
+        hist_obs_.clear();
         last_output_ = std::vector<float>(23, 0.0);
         last_act_ = std::vector<float>(23, 0.0);
         auto initial_data = std::make_shared<SensorData>();

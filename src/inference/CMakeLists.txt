@@ -48,8 +48,8 @@ install(TARGETS ${PROJECT_NAME}_node
   RUNTIME DESTINATION lib/${PROJECT_NAME})
 install(DIRECTORY launch 
   DESTINATION share/${PROJECT_NAME})
-install(DIRECTORY config/
-  DESTINATION share/${PROJECT_NAME}/config
+install(DIRECTORY config
+  DESTINATION share/${PROJECT_NAME}
 )
 install(FILES ${ONNXRUNTIME_LIB_DIR}/libonnxruntime.so ${ONNXRUNTIME_LIB_DIR}/libonnxruntime.so.1 ${ONNXRUNTIME_LIB_DIR}/libonnxruntime.so.1.21.0
         DESTINATION lib)
