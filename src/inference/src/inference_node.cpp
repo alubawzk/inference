@@ -11,29 +11,39 @@ void InferenceNode::subs_joy_callback(const std::shared_ptr<sensor_msgs::msg::Jo
     } else {
         data->dyaw = 0.0;
     }
-    if (msg->buttons[0] == 1) {
-        is_running_ = false;
+    if (msg->buttons[0] == 1 && msg->buttons[0] != last_button0_) {
+        is_running_.store(false);
         RCLCPP_INFO(this->get_logger(), "Inference paused");
     }
-    if (msg->buttons[1] == 1) {
-        is_running_ = false;
+    if (msg->buttons[1] == 1 && msg->buttons[1] != last_button1_) {
+        is_running_.store(false);
+        last_output_ = std::vector<float>(23, 0.0);
+        last_act_ = std::vector<float>(23, 0.0);
+        auto initial_data = std::make_shared<SensorData>();
+        initial_data->imu_obs[0] = 1.0;
+        std::atomic_store(&write_buffer_, initial_data);
+        is_first_frame_ = true;
         RCLCPP_INFO(this->get_logger(), "Inference paused");
     }
-    if (msg->buttons[2] == 1) {
-        is_running_ = true;
-        RCLCPP_INFO(this->get_logger(), "Inference started");
+    if (msg->buttons[2] == 1 && msg->buttons[2] != last_button2_) {
+        is_running_.store(!is_running_.load());
+        RCLCPP_INFO(this->get_logger(), "Inference %s", is_running_.load() ? "started" : "paused");
     }
-    if (msg->buttons[3] == 1) {
-        is_running_ = false;
+    if (msg->buttons[3] == 1 && msg->buttons[3] != last_button3_) {
+        is_running_.store(false);
         RCLCPP_INFO(this->get_logger(), "Inference paused");
     }
+    last_button0_ = msg->buttons[0];
+    last_button1_ = msg->buttons[1];
+    last_button2_ = msg->buttons[2];
+    last_button3_ = msg->buttons[3];
 }
 
 void InferenceNode::subs_left_leg_callback(const std::shared_ptr<sensor_msgs::msg::JointState> msg) {
     auto data = std::atomic_load(&write_buffer_); // 原子加载
     for (int i = 0; i < 6; i++) {
         if (msg->position[i] > joint_limits_upper_[i] || msg->position[i] < joint_limits_lower_[i]){
-            is_running_ = false;
+            is_running_.store(false);
             RCLCPP_WARN(this->get_logger(), "Left leg joint %d out of limits, inference paused!", i+1);
             return;
         }
@@ -46,7 +56,7 @@ void InferenceNode::subs_right_leg_callback(const std::shared_ptr<sensor_msgs::m
     auto data = std::atomic_load(&write_buffer_); // 原子加载
     for (int i = 0; i < 7; i++) {
         if (msg->position[i] > joint_limits_upper_[6+i] || msg->position[i] < joint_limits_lower_[6+i]){
-            is_running_ = false;
+            is_running_.store(false);
             RCLCPP_WARN(this->get_logger(), "Right leg joint %d out of limits, inference paused!", i+1);
             return;
         }
@@ -59,7 +69,7 @@ void InferenceNode::subs_left_arm_callback(const std::shared_ptr<sensor_msgs::ms
     auto data = std::atomic_load(&write_buffer_); // 原子加载
     for (int i = 0; i < 5; i++) {
         if (msg->position[i] > joint_limits_upper_[13+i] || msg->position[i] < joint_limits_lower_[13+i]){
-            is_running_ = false;
+            is_running_.store(false);
             RCLCPP_WARN(this->get_logger(), "Left arm joint %d out of limits, inference paused!", i+1);
             return;
         }
@@ -72,7 +82,7 @@ void InferenceNode::subs_right_arm_callback(const std::shared_ptr<sensor_msgs::m
     auto data = std::atomic_load(&write_buffer_); // 原子加载
     for (int i = 0; i < 5; i++) {
         if (msg->position[i] > joint_limits_upper_[18+i] || msg->position[i] < joint_limits_lower_[18+i]){
-            is_running_ = false;
+            is_running_.store(false);
             RCLCPP_WARN(this->get_logger(), "Right arm joint %d out of limits, inference paused!", i+1);
             return;
         }
@@ -138,7 +148,7 @@ void InferenceNode::get_gravity_b(const SensorData& data) {
     Eigen::Quaternionf q_w2b = q_b2w.inverse();
     Eigen::Vector3f gravity_b = q_w2b * gravity_w;
     if (gravity_b.z() > gravity_z_upper_){
-        is_running_ = false;
+        is_running_.store(false);
         RCLCPP_WARN(this->get_logger(), "Robot fell down! Inference paused.");
         return;
     }
@@ -151,10 +161,7 @@ void InferenceNode::get_gravity_b(const SensorData& data) {
 }
 
 void InferenceNode::inference() {
-    if(!is_running_){
-        last_output_ = std::vector<float>(23, 0.0);
-        last_act_ = std::vector<float>(23, 0.0);
-        is_first_frame_ = true;
+    if(!is_running_.load()){
         return;
     }
     if (step_ % decimation_ == 0) {
@@ -260,7 +267,7 @@ void InferenceNode::inference() {
 int main(int argc, char **argv) {
     rclcpp::init(argc, argv);
     auto node = std::make_shared<InferenceNode>();
-    RCLCPP_INFO(node->get_logger(), "Press 'B' to start inference");
+    RCLCPP_INFO(node->get_logger(), "Press 'B' to start/pause inference");
     rclcpp::spin(node);
     rclcpp::shutdown();
     return 0;
