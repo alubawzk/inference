@@ -6,7 +6,7 @@ inference_node:
         angle_alpha: 1.0
         frame_stack: 10
         decimation: 4
-        intra_threads: -1
+        intra_threads: 1
         dt: 0.005
         obs_scales_lin_vel: 1.0
         obs_scales_ang_vel: 1.0
