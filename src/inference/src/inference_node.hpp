@@ -14,6 +14,7 @@
 #include <sensor_msgs/msg/imu.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
 #include <sensor_msgs/msg/joy.hpp>
+#include <geometry_msgs/msg/twist.hpp>
 #include <vector>
 
 class InferenceNode : public rclcpp::Node {
@@ -29,8 +30,8 @@ class InferenceNode : public rclcpp::Node {
         usd2urdf_.resize(23);
         last_output_.resize(23);
         gravity_z_upper_ = -0.7;
-        joint_limits_lower_ = std::vector<float>{-1.0,-0.2,-1.0+0.24,-0.2-0.48,-0.6+0.24,-0.5,-0.2,-1.0,-1.0+0.24,-0.2-0.48,-0.6+0.24,-0.5,-3.14,-1.57-0.1,-0.25-0.07,-1.57,-0.6-0.1,-1.57,-1.57-0.1,-1.0+0.07,-1.57,-0.6-1.0,-1.57};
-        joint_limits_upper_ = std::vector<float>{ 0.2, 1.0, 1.0+0.24, 2.5-0.48, 0.6+0.24, 0.5, 1.0, 0.2, 1.0+0.24, 2.5-0.48, 0.6+0.24, 0.5, 3.14, 1.57-0.1,  1.0-0.07, 1.57,1.57-0.1, 1.57, 1.57-0.1,0.25+0.07, 1.57,1.57-1.0, 1.57};
+        joint_limits_lower_ = std::vector<float>{-1.0,-0.6,-1.0+0.1,-0.2-0.3,-1.0+0.2,-0.5,-0.6,-1.0,-1.0+0.1,-0.2-0.3,-1.0+0.2,-0.5,-3.14,-1.57-0.18,-0.25-0.06,-1.57,-0.6-0.78,-1.57,-1.57-0.18,-1.0+0.06,-1.57,-0.6-0.78,-1.57};
+        joint_limits_upper_ = std::vector<float>{ 0.6, 1.0, 1.0+0.1, 2.5-0.3, 1.0+0.2, 0.5, 1.0, 0.6, 1.0+0.1, 2.5-0.3, 1.0+0.2, 0.5, 3.14, 1.57-0.18,  1.0-0.06, 1.57,1.57-0.78, 1.57, 1.57-0.18,0.25+0.06, 1.57,1.57-0.78, 1.57};
         is_first_frame_ = true;
 
         this->declare_parameter<std::string>("model_name", "1.onnx");
@@ -141,6 +142,9 @@ class InferenceNode : public rclcpp::Node {
             "/IMU_data", sensor_data_qos, std::bind(&InferenceNode::subs_IMU_callback, this, std::placeholders::_1));
         joy_subscription_ = this->create_subscription<sensor_msgs::msg::Joy>(
             "/joy", sensor_data_qos, std::bind(&InferenceNode::subs_joy_callback, this, std::placeholders::_1));
+        cmd_subscription_ = this->create_subscription<geometry_msgs::msg::Twist>(
+            "/cmd_vel", sensor_data_qos, std::bind(&InferenceNode::subs_cmd_callback,this, std::placeholders::_1
+        ));
         left_leg_publisher_ =
             this->create_publisher<sensor_msgs::msg::JointState>("/joint_command_left_leg", control_command_qos);
         right_leg_publisher_ =
@@ -169,7 +173,7 @@ class InferenceNode : public rclcpp::Node {
         std::vector<float> imu_obs = std::vector<float>(7, 0.0);
     };
     std::shared_ptr<SensorData> write_buffer_, read_buffer_;
-    std::atomic<bool> is_running_{false};
+    std::atomic<bool> is_running_{false}, is_joy_control_{true};
     std::string model_name_, model_path_;
     int frame_stack_;
     int decimation_;
@@ -186,6 +190,7 @@ class InferenceNode : public rclcpp::Node {
         right_leg_subscription_, left_arm_subscription_, right_arm_subscription_;
     rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr  IMU_subscription_;
     rclcpp::Subscription<sensor_msgs::msg::Joy>::SharedPtr joy_subscription_;
+    rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_subscription_;
     rclcpp::TimerBase::SharedPtr timer_pub_;
     std::thread inference_thread_;
     std::vector<float> obs_, last_act_, last_output_;
@@ -208,6 +213,7 @@ class InferenceNode : public rclcpp::Node {
     void subs_left_arm_callback(const std::shared_ptr<sensor_msgs::msg::JointState> msg);
     void subs_right_arm_callback(const std::shared_ptr<sensor_msgs::msg::JointState> msg);
     void subs_IMU_callback(const std::shared_ptr<sensor_msgs::msg::Imu> msg);
+    void subs_cmd_callback(const std::shared_ptr<geometry_msgs::msg::Twist> msg);
     void publish_joint_states();
     void get_gravity_b(const SensorData& data);
     void inference();

@@ -1,21 +1,28 @@
 #include "inference_node.hpp"
 
+void InferenceNode::subs_cmd_callback(const std::shared_ptr<geometry_msgs::msg::Twist> msg){
+    if(!is_joy_control_){
+        auto data = std::atomic_load(&write_buffer_); // 原子加载
+        data->vx = std::clamp(msg->linear.x, -0.3, 0.3);
+        data->vy = std::clamp(msg->linear.y, -0.3, 0.3);
+        data->dyaw = std::clamp(msg->angular.z, -0.6, 0.6);
+    }
+}
+
 void InferenceNode::subs_joy_callback(const std::shared_ptr<sensor_msgs::msg::Joy> msg) {
-    auto data = std::atomic_load(&write_buffer_); // 原子加载
-    data->vx = msg->axes[3] * 0.3;
-    data->vy = msg->axes[2] * 0.3;
-        if (msg->buttons[6] == 1) {
-        data->dyaw = msg->buttons[6] * 0.8;
-        } else if (msg->buttons[7] == 1) {
-        data->dyaw = -msg->buttons[7] * 0.8;
-        } else {
-        data->dyaw = 0.0;
+    if (is_joy_control_){
+        auto data = std::atomic_load(&write_buffer_); // 原子加载
+        data->vx = std::clamp(msg->axes[3] * 0.3, -0.3, 0.3);
+        data->vy = std::clamp(msg->axes[2] * 0.3, -0.3, 0.3);
+            if (msg->buttons[6] == 1) {
+            data->dyaw = std::clamp(msg->buttons[6] * 0.6, 0.0, 0.6);
+            } else if (msg->buttons[7] == 1) {
+            data->dyaw = std::clamp(-msg->buttons[7] * 0.6, -0.6, 0.0);
+            } else {
+            data->dyaw = 0.0;
+        }
     }
-    if (msg->buttons[0] == 1 && msg->buttons[0] != last_button0_) {
-        is_running_.store(false);
-        RCLCPP_INFO(this->get_logger(), "Inference paused");
-    }
-    if (msg->buttons[1] == 1 && msg->buttons[1] != last_button1_) {
+    if ((msg->buttons[0] == 1 && msg->buttons[0] != last_button0_) || (msg->buttons[1] == 1 && msg->buttons[1] != last_button1_) || (msg->buttons[3] == 1 && msg->buttons[3] != last_button3_)) {
         is_running_.store(false);
         hist_obs_.clear();
         last_output_ = std::vector<float>(23, 0.0);
@@ -27,14 +34,14 @@ void InferenceNode::subs_joy_callback(const std::shared_ptr<sensor_msgs::msg::Jo
         read_buffer_->imu_obs[0] = 1.0;
         is_first_frame_ = true;
         RCLCPP_INFO(this->get_logger(), "Inference paused");
+        if (msg->buttons[3] == 1){
+            is_joy_control_.store(!is_joy_control_);
+            RCLCPP_INFO(this->get_logger(), "Controlled by %s", is_joy_control_.load() ? "joy" : "/cmd_vel");
+        }
     }
     if (msg->buttons[2] == 1 && msg->buttons[2] != last_button2_) {
         is_running_.store(!is_running_.load());
         RCLCPP_INFO(this->get_logger(), "Inference %s", is_running_.load() ? "started" : "paused");
-    }
-    if (msg->buttons[3] == 1 && msg->buttons[3] != last_button3_) {
-        is_running_.store(false);
-        RCLCPP_INFO(this->get_logger(), "Inference paused");
     }
     last_button0_ = msg->buttons[0];
     last_button1_ = msg->buttons[1];
@@ -173,7 +180,7 @@ void InferenceNode::get_gravity_b(const SensorData& data) {
 
 void InferenceNode::inference() {
     pthread_setname_np(pthread_self(), "inference");
-    struct sched_param sp{}; sp.sched_priority = 80;
+    struct sched_param sp{}; sp.sched_priority = 70;
     pthread_setschedparam(pthread_self(), SCHED_FIFO, &sp);
     auto period = std::chrono::microseconds(static_cast<long long>(dt_ * 1000 * 1000 * decimation_));
 

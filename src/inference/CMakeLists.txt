@@ -15,6 +15,7 @@ add_definitions(-DROOT_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/\")
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(geometry_msgs REQUIRED)
 find_package(Boost COMPONENTS system)
 find_package(Eigen3 REQUIRED)
 
@@ -38,7 +39,7 @@ target_include_directories(${PROJECT_NAME}_node
   ${ONNXRUNTIME_INCLUDE_DIR}
 )
 target_link_libraries(${PROJECT_NAME}_node PUBLIC ${PUBLIC_DEPENDENCIES} ${ONNXRUNTIME_LIB_DIR}/libonnxruntime.so)
-ament_target_dependencies(${PROJECT_NAME}_node PUBLIC rclcpp sensor_msgs)
+ament_target_dependencies(${PROJECT_NAME}_node PUBLIC rclcpp sensor_msgs geometry_msgs)
 set_target_properties(${PROJECT_NAME}_node PROPERTIES
     BUILD_WITH_INSTALL_RPATH TRUE
     INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/lib" 
@@ -54,6 +55,6 @@ install(DIRECTORY config
 install(FILES ${ONNXRUNTIME_LIB_DIR}/libonnxruntime.so ${ONNXRUNTIME_LIB_DIR}/libonnxruntime.so.1 ${ONNXRUNTIME_LIB_DIR}/libonnxruntime.so.1.21.0
         DESTINATION lib)
 
-ament_export_dependencies(rclcpp sensor_msgs)
+ament_export_dependencies(rclcpp sensor_msgs geometry_msgs)
 ament_export_libraries(${PROJECT_NAME})
 ament_package()
