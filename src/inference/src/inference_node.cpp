@@ -1,14 +1,69 @@
 #include "inference_node.hpp"
 
+void InferenceNode::setup_model(std::unique_ptr<ModelContext>& ctx, std::string model_path, int input_size){
+    if (!ctx) {
+        ctx = std::make_unique<ModelContext>();
+    }
+
+    Ort::SessionOptions session_options;
+    session_options.DisablePerSessionThreads();
+    session_options.EnableCpuMemArena();
+    session_options.EnableMemPattern();
+    session_options.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
+    
+    ctx->session = std::make_unique<Ort::Session>(*env_, model_path.c_str(), session_options);
+    
+    ctx->num_inputs = ctx->session->GetInputCount();
+    ctx->input_names.resize(ctx->num_inputs);
+    ctx->input_buffer.resize(input_size);
+
+    for (size_t i = 0; i < ctx->num_inputs; i++) {
+        Ort::AllocatedStringPtr input_name = ctx->session->GetInputNameAllocated(i, allocator_);
+        ctx->input_names[i] = input_name.get();
+        auto type_info = ctx->session->GetInputTypeInfo(i);
+        ctx->input_shape = type_info.GetTensorTypeAndShapeInfo().GetShape();
+        if (ctx->input_shape[0] == -1) ctx->input_shape[0] = 1;
+    }
+
+    ctx->num_outputs = ctx->session->GetOutputCount();
+    ctx->output_names.resize(ctx->num_outputs);
+    ctx->output_buffer.resize(joint_num_);
+
+    for (size_t i = 0; i < ctx->num_outputs; i++) {
+        Ort::AllocatedStringPtr output_name = ctx->session->GetOutputNameAllocated(i, allocator_);
+        ctx->output_names[i] = output_name.get();
+        auto type_info = ctx->session->GetOutputTypeInfo(i);
+        ctx->output_shape = type_info.GetTensorTypeAndShapeInfo().GetShape();
+    }
+
+    ctx->input_names_raw = std::vector<const char *>(ctx->num_inputs, nullptr);
+    ctx->output_names_raw = std::vector<const char *>(ctx->num_outputs, nullptr);
+    for (size_t i = 0; i < ctx->num_inputs; i++) {
+        ctx->input_names_raw[i] = ctx->input_names[i].c_str();
+    }
+    for (size_t i = 0; i < ctx->num_outputs; i++) {
+        ctx->output_names_raw[i] = ctx->output_names[i].c_str();
+    }
+
+    ctx->memory_info = std::make_unique<Ort::MemoryInfo>(Ort::MemoryInfo::CreateCpu(OrtDeviceAllocator, OrtMemTypeCPU));
+    
+    ctx->input_tensor = std::make_unique<Ort::Value>(Ort::Value::CreateTensor<float>(
+        *ctx->memory_info, ctx->input_buffer.data(), ctx->input_buffer.size(), ctx->input_shape.data(), ctx->input_shape.size()));
+        
+    ctx->output_tensor = std::make_unique<Ort::Value>(Ort::Value::CreateTensor<float>(
+        *ctx->memory_info, ctx->output_buffer.data(), ctx->output_buffer.size(), ctx->output_shape.data(), ctx->output_shape.size()));
+}
+
 void InferenceNode::reset() {
     is_running_.store(false);
-    hist_obs_.clear();
     std::fill(obs_.begin(), obs_.end(), 0.0f);
     std::fill(joint_obs_.begin(), joint_obs_.end(), 0.0f);
     std::fill(motion_pos_.begin(), motion_pos_.end(), 0.0f);
     std::fill(motion_vel_.begin(), motion_vel_.end(), 0.0f);
-    std::fill(input_.begin(), input_.end(), 0.0f);
-    std::fill(output_.begin(), output_.end(), 0.0f);
+    if (active_ctx_) {
+        std::fill(active_ctx_->input_buffer.begin(), active_ctx_->input_buffer.end(), 0.0f);
+        std::fill(active_ctx_->output_buffer.begin(), active_ctx_->output_buffer.end(), 0.0f);
+    }
     std::fill(last_act_.begin(), last_act_.end(), 0.0f);
     auto new_act = std::make_shared<std::vector<float>>(joint_num_, 0.0);
     auto new_tmp_act = std::make_shared<std::vector<float>>(joint_num_, 0.0);
@@ -22,6 +77,8 @@ void InferenceNode::reset() {
     std::atomic_store(&tmp_data_, new_tmp_data);
     is_first_frame_ = true;
     motion_frame_ = 0;
+    is_interrupt_.store(false);
+    is_beyondmimic_.store(false);
 }
 
 void InferenceNode::subs_cmd_callback(const std::shared_ptr<geometry_msgs::msg::Twist> msg){
@@ -46,22 +103,45 @@ void InferenceNode::subs_joy_callback(const std::shared_ptr<sensor_msgs::msg::Jo
             data->dyaw = 0.0;
         }
     }
-    if ((msg->buttons[0] == 1 && msg->buttons[0] != last_button0_) || (msg->buttons[1] == 1 && msg->buttons[1] != last_button1_) || (msg->buttons[3] == 1 && msg->buttons[3] != last_button3_)) {
+    if ((msg->buttons[0] == 1 && msg->buttons[0] != last_button0_) || (msg->buttons[1] == 1 && msg->buttons[1] != last_button1_)) {
         reset();
         RCLCPP_INFO(this->get_logger(), "Inference paused");
-        if (msg->buttons[3] == 1){
-            is_joy_control_.store(!is_joy_control_);
-            RCLCPP_INFO(this->get_logger(), "Controlled by %s", is_joy_control_.load() ? "joy" : "/cmd_vel");
-        }
     }
     if (msg->buttons[2] == 1 && msg->buttons[2] != last_button2_) {
         is_running_.store(!is_running_.load());
         RCLCPP_INFO(this->get_logger(), "Inference %s", is_running_.load() ? "started" : "paused");
     }
-    if (use_interrupt_) {
+    if (msg->buttons[3] == 1 && msg->buttons[3] != last_button3_) {
+        is_joy_control_.store(!is_joy_control_);
+        RCLCPP_INFO(this->get_logger(), "Controlled by %s", is_joy_control_.load() ? "joy" : "/cmd_vel");
+    }
+    if (use_interrupt_ || use_beyondmimic_) {
         if (msg->buttons[4] == 1 && msg->buttons[4] != last_button4_) {
-            is_interrupt_.store(!is_interrupt_.load());
-            RCLCPP_INFO(this->get_logger(), "Interrupt mode %s", is_interrupt_.load() ? "enabled" : "disabled");
+            if(use_interrupt_){
+                is_interrupt_.store(!is_interrupt_.load());
+                RCLCPP_INFO(this->get_logger(), "Interrupt mode %s", is_interrupt_.load() ? "enabled" : "disabled");
+            }
+            if(use_beyondmimic_){
+                is_running_.store(false);
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                is_beyondmimic_.store(!is_beyondmimic_.load());
+                bool is_beyondmimic = is_beyondmimic_.load();
+                active_ctx_ = is_beyondmimic ? motion_ctx_.get() : normal_ctx_.get();
+                int obs_num = is_beyondmimic ? motion_obs_num_ : obs_num_;
+                obs_.resize(obs_num);
+                std::fill(obs_.begin(), obs_.end(), 0.0f);
+                std::fill(joint_obs_.begin(), joint_obs_.end(), 0.0f);
+                std::fill(motion_pos_.begin(), motion_pos_.end(), 0.0f);
+                std::fill(motion_vel_.begin(), motion_vel_.end(), 0.0f);
+                std::fill(active_ctx_->input_buffer.begin(), active_ctx_->input_buffer.end(), 0.0f);
+                std::fill(active_ctx_->output_buffer.begin(), active_ctx_->output_buffer.end(), 0.0f);
+                std::fill(last_act_.begin(), last_act_.end(), 0.0f);
+                is_first_frame_ = true;
+                motion_frame_ = 0;
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                is_running_.store(true);
+                RCLCPP_INFO(this->get_logger(), "Beyondmimic mode %s", is_beyondmimic ? "enabled" : "disabled");
+            }
         }
         last_button4_ = msg->buttons[4];
     }
@@ -213,11 +293,11 @@ void InferenceNode::inference() {
             continue;
         }
 
-        write_buffer_ = std::atomic_exchange(&tmp_data_, write_buffer_);
+        tmp_data_ = std::atomic_exchange(&write_buffer_, tmp_data_);
         
         int offset = 0;
 
-        if(use_beyondmimic_){
+        if(is_beyondmimic_.load()){
             motion_pos_ = motion_loader_->get_pos(motion_frame_);
             motion_vel_ = motion_loader_->get_vel(motion_frame_);
             motion_frame_ += 1;
@@ -239,7 +319,7 @@ void InferenceNode::inference() {
         get_gravity_b(*tmp_data_, offset);
         offset += 3;
 
-        if (!use_beyondmimic_){
+        if (!is_beyondmimic_.load()){
         obs_[0 + offset] = tmp_data_->vx * obs_scales_lin_vel_;
         obs_[1 + offset] = tmp_data_->vy * obs_scales_lin_vel_;
         obs_[2 + offset] = tmp_data_->dyaw * obs_scales_ang_vel_;
@@ -269,7 +349,7 @@ void InferenceNode::inference() {
         offset += joint_num_ * 2;
 
         for (int i = 0; i < joint_num_; i++) {
-            obs_[offset + i] = output_[i];
+            obs_[offset + i] = active_ctx_->output_buffer[i];
         }
         offset += joint_num_;
 
@@ -280,26 +360,27 @@ void InferenceNode::inference() {
         std::transform(obs_.begin(), obs_.end(), obs_.begin(), [this](float val) {
             return std::clamp(val, -clip_observations_, clip_observations_);
         });
+
+        bool is_beyondmimic = is_beyondmimic_.load();
+        int obs_num = is_beyondmimic ? motion_obs_num_: obs_num_;
+        int frame_stack = is_beyondmimic ? motion_frame_stack_ : frame_stack_;
         if (is_first_frame_) {
-            for (int i = 0; i < frame_stack_; i++) {
-                hist_obs_.push_back(obs_);
+            for (int i = 0; i < frame_stack; i++) {
+                std::copy(obs_.begin(), obs_.end(), active_ctx_->input_buffer.begin() + i * obs_num);
             }
             is_first_frame_ = false;
         } else {
-            hist_obs_.pop_front();
-            hist_obs_.push_back(obs_);
+            std::copy(active_ctx_->input_buffer.begin() + obs_num, active_ctx_->input_buffer.end(), active_ctx_->input_buffer.begin());
+            std::copy(obs_.begin(), obs_.end(), active_ctx_->input_buffer.end() - obs_num);
         }
 
-        for (int i = 0; i < frame_stack_; i++) {
-            std::copy(hist_obs_[i].begin(), hist_obs_[i].end(), input_.begin() + i * obs_num_);
-        }
+        active_ctx_->session->Run(Ort::RunOptions{nullptr}, 
+            active_ctx_->input_names_raw.data(), active_ctx_->input_tensor.get(), active_ctx_->num_inputs,
+            active_ctx_->output_names_raw.data(), active_ctx_->output_tensor.get(), active_ctx_->num_outputs);
 
-        session_->Run(Ort::RunOptions{nullptr}, input_names_raw_.data(), input_tensor_.get(), 1,
-            output_names_raw_.data(), output_tensor_.get(), 1);
-
-        for (int i = 0; i < output_.size(); i++) {
-            output_[i] = std::clamp(output_[i], -clip_actions_, clip_actions_);
-            (*tmp_act_)[usd2urdf_[i]] = output_[i];
+        for (int i = 0; i < active_ctx_->output_buffer.size(); i++) {
+            active_ctx_->output_buffer[i] = std::clamp(active_ctx_->output_buffer[i], -clip_actions_, clip_actions_);
+            (*tmp_act_)[usd2urdf_[i]] = active_ctx_->output_buffer[i];
             (*tmp_act_)[usd2urdf_[i]] = (*tmp_act_)[usd2urdf_[i]] * action_scale_;
         }
         tmp_act_ = std::atomic_exchange(&act_, tmp_act_);
