@@ -87,21 +87,21 @@ void InferenceNode::reset() {
 void InferenceNode::subs_cmd_callback(const std::shared_ptr<geometry_msgs::msg::Twist> msg){
     if(!is_joy_control_){
         auto data = std::atomic_load(&write_buffer_); // 原子加载
-        data->vx = std::clamp(msg->linear.x, -0.3, 0.3);
-        data->vy = std::clamp(msg->linear.y, -0.3, 0.3);
-        data->dyaw = std::clamp(msg->angular.z, -0.6, 0.6);
+        data->vx = std::clamp(msg->linear.x, -0.4, 0.6);
+        data->vy = std::clamp(msg->linear.y, -0.4, 0.4);
+        data->dyaw = std::clamp(msg->angular.z, -1.0, 1.0);
     }
 }
 
 void InferenceNode::subs_joy_callback(const std::shared_ptr<sensor_msgs::msg::Joy> msg) {
     if (is_joy_control_){
         auto data = std::atomic_load(&write_buffer_); // 原子加载
-        data->vx = std::clamp(msg->axes[3] * 0.3, -0.3, 0.3);
-        data->vy = std::clamp(msg->axes[2] * 0.3, -0.3, 0.3);
+        data->vx = std::clamp(msg->axes[3] * 0.6, -0.4, 0.6);
+        data->vy = std::clamp(msg->axes[2] * 0.4, -0.4, 0.4);
             if (msg->buttons[6] == 1) {
-            data->dyaw = std::clamp(msg->buttons[6] * 0.6, 0.0, 0.6);
+            data->dyaw = std::clamp(msg->buttons[6] * 1.0, 0.0, 1.0);
             } else if (msg->buttons[7] == 1) {
-            data->dyaw = std::clamp(-msg->buttons[7] * 0.6, -0.6, 0.0);
+            data->dyaw = std::clamp(-msg->buttons[7] * 1.0, -1.0, 0.0);
             } else {
             data->dyaw = 0.0;
         }
