@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.8)
+cmake_minimum_required(VERSION 3.16)
 project(inference)
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -march=native")
@@ -16,8 +16,13 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(std_srvs REQUIRED)
 find_package(Boost COMPONENTS system)
 find_package(Eigen3 REQUIRED)
+find_package(spdlog REQUIRED)
+find_package(fmt REQUIRED)
+find_package(motors REQUIRED)
+find_package(imu REQUIRED)
 
 if(CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64")
 set(ONNXRUNTIME_ROOT_DIR ${CMAKE_SOURCE_DIR}/thirdparty/onnxruntime-linux-x64-1.21.0)
@@ -34,9 +39,11 @@ set(CNPY_INCLUDE_DIR ${CNPY_ROOT_DIR}/include)
 set(CNPY_LIB_DIR ${CNPY_ROOT_DIR}/lib)
 
 set(PUBLIC_DEPENDENCIES
-    ${Boost_LIBRARIES} pthread Eigen3::Eigen)
+    ${Boost_LIBRARIES} pthread Eigen3::Eigen fmt::fmt spdlog::spdlog ${ONNXRUNTIME_LIB_DIR}/libonnxruntime.so ${CNPY_LIB_DIR}/libcnpy.so)
 
-add_executable(${PROJECT_NAME}_node src/inference_node.cpp src/motion_loader.cpp)
+add_subdirectory(src)
+
+add_executable(${PROJECT_NAME}_node src/inference_node.cpp src/ros_interface.cpp)
 target_include_directories(${PROJECT_NAME}_node
   PUBLIC 
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
@@ -44,8 +51,19 @@ target_include_directories(${PROJECT_NAME}_node
   ${ONNXRUNTIME_INCLUDE_DIR}
   ${CNPY_INCLUDE_DIR}
 )
-target_link_libraries(${PROJECT_NAME}_node PUBLIC ${PUBLIC_DEPENDENCIES} ${ONNXRUNTIME_LIB_DIR}/libonnxruntime.so ${CNPY_LIB_DIR}/libcnpy.so)
-ament_target_dependencies(${PROJECT_NAME}_node PUBLIC rclcpp sensor_msgs geometry_msgs)
+target_link_libraries(${PROJECT_NAME}_node PUBLIC ${PUBLIC_DEPENDENCIES} utils)
+target_precompile_headers(${PROJECT_NAME}_node PRIVATE
+  <rclcpp/rclcpp.hpp>
+  <onnxruntime_cxx_api.h>
+  <Eigen/Geometry>
+  <vector>
+  <string>
+  <memory>
+  <mutex>
+  <algorithm>
+  <cmath>
+)
+ament_target_dependencies(${PROJECT_NAME}_node PUBLIC rclcpp sensor_msgs geometry_msgs std_srvs imu motors)
 set_target_properties(${PROJECT_NAME}_node PROPERTIES
     BUILD_WITH_INSTALL_RPATH TRUE
     INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/lib" 

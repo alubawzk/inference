@@ -5,13 +5,23 @@ from ament_index_python.packages import get_package_share_directory
 import os
 
 def generate_launch_description():
-    config = (
+    configs = [
         os.path.join(
             get_package_share_directory("inference"),
             "config",
             "inference.yaml",
         ),
-    )
+        os.path.join(
+            get_package_share_directory("inference"),
+            "config",
+            "motors.yaml",
+        ),
+        os.path.join(
+            get_package_share_directory("inference"),
+            "config",
+            "imu.yaml",
+        ),
+    ]
 
     return LaunchDescription(
         [
@@ -19,7 +29,7 @@ def generate_launch_description():
                 package="inference",
                 executable="inference_node",
                 name="inference_node",
-                parameters=[config],
+                parameters=configs,
                 output="screen",
                 # prefix=["xterm -e gdb -ex run --args"],
             ),
