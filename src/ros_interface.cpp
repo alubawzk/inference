@@ -132,7 +132,7 @@ void InferenceNode::subs_joy_callback(const std::shared_ptr<sensor_msgs::msg::Jo
         if (!robot_->is_init_.load()){
             RCLCPP_WARN(this->get_logger(), "Motors are not initialized!");
         } else {
-            robot_->reset_motors(joint_default_angle_);
+            robot_->reset_joints(joint_default_angle_);
             RCLCPP_INFO(this->get_logger(), "Motors reset");
         }
     }
@@ -212,39 +212,75 @@ void InferenceNode::subs_joint_state_callback(const std::shared_ptr<sensor_msgs:
     }
 }
 
-void InferenceNode::reset_motors_srv(const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
+void InferenceNode::reset_joints_srv(const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
                                      std::shared_ptr<std_srvs::srv::Trigger::Response> response) {
     if (is_running_.load()) {
         response->success = false;
-        response->message = "Inference is running, cannot reset motors.";
+        response->message = "Inference is running, cannot reset joints.";
         return;
     }
     if (!robot_->is_init_.load()) {
         response->success = false;
-        response->message = "Motors are not initialized, cannot reset motors.";
+        response->message = "Motors are not initialized, cannot reset joints.";
         return;
     }
     try {
-        robot_->reset_motors(joint_default_angle_);
+        robot_->reset_joints(joint_default_angle_);
         response->success = true;
-        response->message = "Motors reset successfully";
+        response->message = "Joints reset successfully";
     } catch (const std::exception& e) {
         response->success = false;
         response->message = e.what();
     }
 }
 
-void InferenceNode::read_motors_srv(const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
+void InferenceNode::refresh_joints_srv(const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
                                      std::shared_ptr<std_srvs::srv::Trigger::Response> response) {
     if (!robot_->is_init_.load()) {
         response->success = false;
-        response->message = "Motors are not initialized, cannot read motors.";
+        response->message = "Motors are not initialized, cannot refresh motors.";
         return;
     }
     try {
-        robot_->read_motors();
+        robot_->refresh_joints();
         response->success = true;
-        response->message = "Motors read successfully";
+        response->message = "Motors refresh successfully";
+    } catch (const std::exception& e) {
+        response->success = false;
+        response->message = e.what();
+    }
+}
+
+void InferenceNode::read_joints_srv(const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
+                                     std::shared_ptr<std_srvs::srv::Trigger::Response> response) {
+    if (!robot_->is_init_.load()) {
+        response->success = false;
+        response->message = "Motors are not initialized, cannot read joints.";
+        return;
+    }
+    try {
+        response->success = true;
+        response->message = "Joints read successfully";
+        read_joints();
+        publish_joint_states();
+    } catch (const std::exception& e) {
+        response->success = false;
+        response->message = e.what();
+    }
+}
+
+void InferenceNode::read_imu_srv(const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
+                                 std::shared_ptr<std_srvs::srv::Trigger::Response> response) {
+    if (!robot_) {
+        response->success = false;
+        response->message = "IMU is not initialized, cannot read IMU.";
+        return;
+    }
+    try {
+        response->success = true;
+        response->message = "IMU read successfully";
+        read_imu();
+        publish_imu();
     } catch (const std::exception& e) {
         response->success = false;
         response->message = e.what();
@@ -275,6 +311,11 @@ void InferenceNode::set_zeros_srv(const std::shared_ptr<std_srvs::srv::Trigger::
 
 void InferenceNode::clear_errors_srv(const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
                                      std::shared_ptr<std_srvs::srv::Trigger::Response> response) {
+    if (!robot_) {
+        response->success = false;
+        response->message = "Robot interface is not initialized, cannot clear errors.";
+        return;
+    }
     try {
         robot_->clear_errors();
         response->success = true;

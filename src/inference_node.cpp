@@ -126,12 +126,11 @@ void InferenceNode::inference() {
             offset += joint_num_ * 2;
         }
 
-        ang_vel_ = robot_->get_ang_vel();
+        read_imu();
         for (int i = 0; i < 3; i++) {
             obs_[i + offset] = ang_vel_[i] * obs_scales_ang_vel_;
         }
         offset += 3;
-        quat_ = robot_->get_quat();
         Eigen::Quaternionf q_b2w(quat_[0], quat_[1], quat_[2], quat_[3]);
         Eigen::Vector3f gravity_w(0.0f, 0.0f, -1.0f);
         Eigen::Quaternionf q_w2b = q_b2w.inverse();
@@ -155,11 +154,9 @@ void InferenceNode::inference() {
             offset += 3;
         }
 
-        joint_pos_ = robot_->get_joint_q();
-        joint_vel_ = robot_->get_joint_vel();
-        joint_torques_ = robot_->get_joint_tau();
+        read_joints();
         for (int i = 0; i < joint_num_; i++) {
-            obs_[offset + i] = joint_pos_[usd2urdf_[i]] * obs_scales_dof_pos_;
+            obs_[offset + i] = (joint_pos_[usd2urdf_[i]] - joint_default_angle_[usd2urdf_[i]]) * obs_scales_dof_pos_;
             obs_[offset + joint_num_ + i] = joint_vel_[usd2urdf_[i]] * obs_scales_dof_vel_;
         }
         for(size_t i = 0; i < joint_limits_.size() / 2; i++){
@@ -169,8 +166,8 @@ void InferenceNode::inference() {
                 return;
             }
         }
-        publish_joint_states();
         offset += joint_num_ * 2;
+        publish_joint_states();
 
         for (int i = 0; i < joint_num_; i++) {
             obs_[offset + i] = active_ctx_->output_buffer[i];

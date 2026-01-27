@@ -98,14 +98,18 @@ class InferenceNode : public rclcpp::Node {
         timer_pub_ = this->create_wall_timer(std::chrono::milliseconds((int)(dt_ * 1000)),
                                              std::bind(&InferenceNode::apply_action, this));
 
-        reset_motors_service_ = this->create_service<std_srvs::srv::Trigger>(
-            "reset_motors", std::bind(&InferenceNode::reset_motors_srv, this, std::placeholders::_1, std::placeholders::_2));
+        reset_joints_service_ = this->create_service<std_srvs::srv::Trigger>(
+            "reset_joints", std::bind(&InferenceNode::reset_joints_srv, this, std::placeholders::_1, std::placeholders::_2));
         set_zeros_service_ = this->create_service<std_srvs::srv::Trigger>(
             "set_zeros", std::bind(&InferenceNode::set_zeros_srv, this, std::placeholders::_1, std::placeholders::_2));
         clear_errors_service_ = this->create_service<std_srvs::srv::Trigger>(
             "clear_errors", std::bind(&InferenceNode::clear_errors_srv, this, std::placeholders::_1, std::placeholders::_2));
-        read_motors_service_ = this->create_service<std_srvs::srv::Trigger>(
-            "read_motors", std::bind(&InferenceNode::read_motors_srv, this, std::placeholders::_1, std::placeholders::_2));
+        refresh_joints_service_ = this->create_service<std_srvs::srv::Trigger>(
+            "refresh_joints", std::bind(&InferenceNode::refresh_joints_srv, this, std::placeholders::_1, std::placeholders::_2));
+        read_joints_service_ = this->create_service<std_srvs::srv::Trigger>(
+            "read_joints", std::bind(&InferenceNode::read_joints_srv, this, std::placeholders::_1, std::placeholders::_2));
+        read_imu_service_ = this->create_service<std_srvs::srv::Trigger>(
+            "read_imu", std::bind(&InferenceNode::read_imu_srv, this, std::placeholders::_1, std::placeholders::_2));
         init_motors_service_ = this->create_service<std_srvs::srv::Trigger>(
             "init_motors", std::bind(&InferenceNode::init_motors_srv, this, std::placeholders::_1, std::placeholders::_2));
         deinit_motors_service_ = this->create_service<std_srvs::srv::Trigger>(
@@ -175,7 +179,7 @@ class InferenceNode : public rclcpp::Node {
     std::vector<const char *> input_names_raw_, output_names_raw_;
     std::unique_ptr<ModelContext> normal_ctx_, motion_ctx_;
     ModelContext* active_ctx_;
-    rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr reset_motors_service_, set_zeros_service_, clear_errors_service_, read_motors_service_, init_motors_service_, deinit_motors_service_, start_inference_service_, stop_inference_service_;
+    rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr reset_joints_service_, set_zeros_service_, clear_errors_service_, refresh_joints_service_, read_joints_service_, read_imu_service_, init_motors_service_, deinit_motors_service_, start_inference_service_, stop_inference_service_;
 
     std::mutex act_mutex_, perception_mutex_, interrupt_mutex_, cmd_mutex_;
     std::vector<float> obs_, act_, last_act_, perception_obs_, motion_pos_, motion_vel_, joint_pos_, joint_vel_, cmd_vel_, quat_, ang_vel_, interrupt_action_, joint_torques_;
@@ -186,6 +190,15 @@ class InferenceNode : public rclcpp::Node {
     void subs_joint_state_callback(const std::shared_ptr<sensor_msgs::msg::JointState> msg);
     void inference();
     void apply_action();
+    void read_joints() {
+        joint_pos_ = robot_->get_joint_q();
+        joint_vel_ = robot_->get_joint_vel();
+        joint_torques_ = robot_->get_joint_tau();
+    }
+    void read_imu() {
+        ang_vel_ = robot_->get_ang_vel();
+        quat_ = robot_->get_quat();
+    }
     void reset();
     void load_config();
     void setup_model(std::unique_ptr<ModelContext>& ctx, std::string model_path, int input_size);
@@ -193,14 +206,18 @@ class InferenceNode : public rclcpp::Node {
                          std::shared_ptr<std_srvs::srv::Trigger::Response> response);
     void deinit_motors_srv(const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
                            std::shared_ptr<std_srvs::srv::Trigger::Response> response);
-    void reset_motors_srv(const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
+    void reset_joints_srv(const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
                           std::shared_ptr<std_srvs::srv::Trigger::Response> response);
     void set_zeros_srv(const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
                        std::shared_ptr<std_srvs::srv::Trigger::Response> response);
     void clear_errors_srv(const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
                           std::shared_ptr<std_srvs::srv::Trigger::Response> response);
-    void read_motors_srv(const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
+    void refresh_joints_srv(const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
+                            std::shared_ptr<std_srvs::srv::Trigger::Response> response);
+    void read_joints_srv(const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
                          std::shared_ptr<std_srvs::srv::Trigger::Response> response);
+    void read_imu_srv(const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
+                      std::shared_ptr<std_srvs::srv::Trigger::Response> response);
     void start_inference_srv(const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
                              std::shared_ptr<std_srvs::srv::Trigger::Response> response);
     void stop_inference_srv(const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
