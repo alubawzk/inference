@@ -161,7 +161,7 @@ void InferenceNode::inference() {
         }
         for(size_t i = 0; i < joint_limits_.size() / 2; i++){
             if(joint_pos_[i] < joint_limits_[i * 2] || joint_pos_[i] > joint_limits_[i * 2 + 1]){
-                RCLCPP_FATAL(this->get_logger(), "Joint %ld out of limit! Shutting down...", i);
+                RCLCPP_FATAL(this->get_logger(), "Joint %ld out of limit! Shutting down...", i+1);
                 rclcpp::shutdown();
                 return;
             }
