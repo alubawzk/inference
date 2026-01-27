@@ -1,6 +1,6 @@
 AUX_SOURCE_DIRECTORY(. SOURCE_LIST_UTILS)
 add_library(utils
-        SHARED
+        STATIC
         ${SOURCE_LIST_UTILS}
 )
 target_include_directories(utils PUBLIC ./ ${CNPY_INCLUDE_DIR})
