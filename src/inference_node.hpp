@@ -1,3 +1,5 @@
+#pragma once
+
 #include <onnxruntime_cxx_api.h>
 #include <string>
 #include <vector>
@@ -20,19 +22,15 @@
 #include <geometry_msgs/msg/twist.hpp>
 #include <std_msgs/msg/float32_multi_array.hpp> 
 #include "utils/motion_loader.hpp"
-#include "utils/close_chain_mapping.hpp"
-#include "utils/thread_pool.hpp"
-#include "motor_driver.hpp"
-#include "imu_driver.hpp"
 #include <std_srvs/srv/trigger.hpp>
+#include "robot_interface.hpp"
 
 class InferenceNode : public rclcpp::Node {
    public:
     InferenceNode() : Node("inference_node") {
-
         load_config();
-        
-        thread_pool_ = std::make_unique<ThreadPool>(motor_interface_.size());
+
+        robot_ = std::make_shared<RobotInterface>(std::string(ROOT_DIR) + "config/robot.yaml");
 
         Ort::ThreadingOptions thread_opts;
         if (intra_threads_ > 0) {
@@ -58,13 +56,9 @@ class InferenceNode : public rclcpp::Node {
             }
         }
 
-        setup_motors();
-        setup_imu();
-
-        ankle_decouple_ = std::make_shared<Decouple>();
-
         obs_ = std::vector<float>(obs_num_, 0.0);
-        joint_obs_ = std::vector<float>(joint_num_ * 2, 0.0);
+        joint_pos_ = std::vector<float>(joint_num_, 0.0);
+        joint_vel_ = std::vector<float>(joint_num_, 0.0);
         motion_pos_ = std::vector<float>(joint_num_, 0.0);
         motion_vel_ = std::vector<float>(joint_num_, 0.0);
         cmd_vel_ = std::vector<float>(3, 0.0);
@@ -126,9 +120,9 @@ class InferenceNode : public rclcpp::Node {
             inference_thread_.join();
         }
         reset();
-        deinit_motors();
-        motors_.clear();
-        imu_.reset();
+        if(robot_){
+            robot_.reset();
+        }
     }
     struct ModelContext {
         std::unique_ptr<Ort::Session> session;
@@ -147,8 +141,9 @@ class InferenceNode : public rclcpp::Node {
         size_t num_outputs;
     };
    private:
+    std::shared_ptr<RobotInterface> robot_;
     int offline_threshold_ = 10;
-    std::atomic<bool> is_init_{false}, is_running_{false}, is_joy_control_{true}, is_interrupt_{false}, is_beyondmimic_{false};
+    std::atomic<bool> is_running_{false}, is_joy_control_{true}, is_interrupt_{false}, is_beyondmimic_{false};
     std::string model_name_, model_path_, motion_name_, motion_path_, motion_model_name_, motion_model_path_, perception_obs_topic_;
     bool use_interrupt_, use_beyondmimic_, use_attn_enc_;
     int obs_num_, motion_obs_num_, perception_obs_num_, frame_stack_, motion_frame_stack_, joint_num_;
@@ -156,8 +151,6 @@ class InferenceNode : public rclcpp::Node {
     std::unique_ptr<Ort::Env> env_;
     int intra_threads_;
     Ort::AllocatorWithDefaultOptions allocator_;
-    rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr left_leg_publisher_, right_leg_publisher_,
-        left_arm_publisher_, right_arm_publisher_;
     rclcpp::Subscription<sensor_msgs::msg::Joy>::SharedPtr joy_subscription_;
     rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_subscription_;
     rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr elevation_subscription_;
@@ -172,11 +165,8 @@ class InferenceNode : public rclcpp::Node {
     float obs_scales_lin_vel_, obs_scales_ang_vel_, obs_scales_dof_pos_, obs_scales_dof_vel_,
         obs_scales_gravity_b_, clip_observations_;
     float action_scale_, clip_actions_;
-    std::vector<long int> usd2urdf_, motor_id_, motor_model_, motor_num_, close_chain_motor_id_, motor_sign_;
-    std::vector<double> kp_, kd_, joint_default_angle_, joint_limits_, clip_cmd_;
-    std::string motor_type_, imu_type_, motor_interface_type_, imu_interface_type_, imu_interface_;
-    std::vector<std::string> motor_interface_;
-    int master_id_offset_, imu_id_, baudrate_;
+    std::vector<double> clip_cmd_, joint_default_angle_, joint_limits_;
+    std::vector<long int> usd2urdf_;
     bool is_first_frame_;
     float gravity_z_upper_;
     int last_button0_ = 0, last_button1_ = 0, last_button2_ = 0, last_button3_ = 0, last_button4_ = 0;
@@ -185,32 +175,20 @@ class InferenceNode : public rclcpp::Node {
     std::vector<const char *> input_names_raw_, output_names_raw_;
     std::unique_ptr<ModelContext> normal_ctx_, motion_ctx_;
     ModelContext* active_ctx_;
-    std::shared_ptr<IMUDriver> imu_;
-    std::shared_ptr<Decouple> ankle_decouple_;
-    std::vector<std::shared_ptr<MotorDriver>> motors_;
-    std::unique_ptr<ThreadPool> thread_pool_;
     rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr reset_motors_service_, set_zeros_service_, clear_errors_service_, read_motors_service_, init_motors_service_, deinit_motors_service_, start_inference_service_, stop_inference_service_;
 
-    std::mutex motors_mutex_, joint_mutex_, act_mutex_, perception_mutex_, interrupt_mutex_, cmd_mutex_;
-    std::vector<float> obs_, act_, last_act_, perception_obs_, motion_pos_, motion_vel_, joint_obs_, cmd_vel_, quat_, ang_vel_, interrupt_action_, joint_torques_;
+    std::mutex act_mutex_, perception_mutex_, interrupt_mutex_, cmd_mutex_;
+    std::vector<float> obs_, act_, last_act_, perception_obs_, motion_pos_, motion_vel_, joint_pos_, joint_vel_, cmd_vel_, quat_, ang_vel_, interrupt_action_, joint_torques_;
 
     void subs_joy_callback(const std::shared_ptr<sensor_msgs::msg::Joy> msg);
     void subs_cmd_callback(const std::shared_ptr<geometry_msgs::msg::Twist> msg);
     void subs_elevation_callback(const std::shared_ptr<std_msgs::msg::Float32MultiArray> msg);
     void subs_joint_state_callback(const std::shared_ptr<sensor_msgs::msg::JointState> msg);
-    void apply_action();
     void inference();
+    void apply_action();
     void reset();
     void load_config();
     void setup_model(std::unique_ptr<ModelContext>& ctx, std::string model_path, int input_size);
-    void setup_motors();
-    void setup_imu();
-    void init_motors();
-    void deinit_motors();
-    void reset_motors();
-    void set_zeros();
-    void clear_errors();
-    void read_motors();
     void init_motors_srv(const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
                          std::shared_ptr<std_srvs::srv::Trigger::Response> response);
     void deinit_motors_srv(const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
@@ -230,9 +208,6 @@ class InferenceNode : public rclcpp::Node {
     void publish_joint_states();
     void publish_action();
     void publish_imu();
-
-    void exec_motors_parallel(std::function<void(std::shared_ptr<MotorDriver>&, int)> cmd_func);
-    void process_close_chain(float* q_in, float* vel_in, float* tau_in, float* target, bool forward_only);
     
     template <typename T>
     void print_vector(const std::string& name, const std::vector<T>& vec) {

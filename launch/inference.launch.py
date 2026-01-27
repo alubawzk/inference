@@ -11,16 +11,6 @@ def generate_launch_description():
             "config",
             "inference.yaml",
         ),
-        os.path.join(
-            get_package_share_directory("inference"),
-            "config",
-            "motors.yaml",
-        ),
-        os.path.join(
-            get_package_share_directory("inference"),
-            "config",
-            "imu.yaml",
-        ),
     ]
 
     return LaunchDescription(

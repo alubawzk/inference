@@ -28,30 +28,10 @@ void InferenceNode::load_config() {
     this->declare_parameter<float>("clip_observations", 100.0);
     this->declare_parameter<float>("action_scale", 0.3);
     this->declare_parameter<float>("clip_actions", 18.0);
-
-    this->declare_parameter<std::vector<double>>("clip_cmd", std::vector<double>{});
-    this->declare_parameter<std::vector<double>>("kp", std::vector<double>{});
-    this->declare_parameter<std::vector<double>>("kd", std::vector<double>{});
-    this->declare_parameter<std::vector<long int>>("motor_sign", std::vector<long int>{});
-    this->declare_parameter<std::vector<long int>>("close_chain_motor_id", std::vector<long int>{});
-    this->declare_parameter<std::vector<double>>("joint_default_angle", std::vector<double>{});
     this->declare_parameter<std::vector<long int>>("usd2urdf", std::vector<long int>{});
+    this->declare_parameter<std::vector<double>>("clip_cmd", std::vector<double>{});
+    this->declare_parameter<std::vector<double>>("joint_default_angle", std::vector<double>{});
     this->declare_parameter<std::vector<double>>("joint_limits", std::vector<double>{});
-    this->declare_parameter<float>("gravity_z_upper", -0.5);
-
-    this->declare_parameter<std::vector<long int>>("motor_id", std::vector<long int>{});
-    this->declare_parameter<std::vector<long int>>("motor_model", std::vector<long int>{});
-    this->declare_parameter<std::string>("motor_type", "");
-    this->declare_parameter<std::string>("motor_interface_type", "");
-    this->declare_parameter<std::vector<std::string>>("motor_interface", std::vector<std::string>{});
-    this->declare_parameter<std::vector<long int>>("motor_num", std::vector<long int>{});
-    this->declare_parameter<int>("master_id_offset", 0);
-
-    this->declare_parameter<int>("imu_id", 0);
-    this->declare_parameter<std::string>("imu_type", "");
-    this->declare_parameter<std::string>("imu_interface_type", "");
-    this->declare_parameter<std::string>("imu_interface", "");
-    this->declare_parameter<int>("baudrate", 0);
 
 
     this->get_parameter("model_name", model_name_);
@@ -81,30 +61,11 @@ void InferenceNode::load_config() {
     this->get_parameter("clip_observations", clip_observations_);
     this->get_parameter("action_scale", action_scale_);
     this->get_parameter("clip_actions", clip_actions_);
-
+    this->get_parameter("usd2urdf", usd2urdf_);
     this->get_parameter("clip_cmd", clip_cmd_);
-    this->get_parameter("kp", kp_);
-    this->get_parameter("kd", kd_);
-    this->get_parameter("motor_sign", motor_sign_);
-    this->get_parameter("close_chain_motor_id", close_chain_motor_id_);
     this->get_parameter("joint_default_angle", joint_default_angle_);
     this->get_parameter("joint_limits", joint_limits_);
-    this->get_parameter("usd2urdf", usd2urdf_);
-    this->get_parameter("gravity_z_upper", gravity_z_upper_);
 
-    this->get_parameter("motor_id", motor_id_);
-    this->get_parameter("motor_model", motor_model_);
-    this->get_parameter("motor_type", motor_type_);
-    this->get_parameter("motor_interface_type", motor_interface_type_);
-    this->get_parameter("motor_interface", motor_interface_);
-    this->get_parameter("motor_num", motor_num_);
-    this->get_parameter("master_id_offset", master_id_offset_);
-
-    this->get_parameter("imu_id", imu_id_);
-    this->get_parameter("imu_type", imu_type_);
-    this->get_parameter("imu_interface_type", imu_interface_type_);
-    this->get_parameter("imu_interface", imu_interface_);
-    this->get_parameter("baudrate", baudrate_);
 
     model_path_ = std::string(ROOT_DIR) + "models/" + model_name_;
     motion_path_ = std::string(ROOT_DIR) + "motions/" + motion_name_;
@@ -131,30 +92,10 @@ void InferenceNode::load_config() {
     RCLCPP_INFO(this->get_logger(), "obs_scales_gravity_b: %f", obs_scales_gravity_b_);
     RCLCPP_INFO(this->get_logger(), "action_scale: %f", action_scale_);
     RCLCPP_INFO(this->get_logger(), "clip_actions: %f", clip_actions_);
-
-    print_vector("clip_cmd", clip_cmd_);
-    print_vector("kp", kp_);
-    print_vector("kd", kd_);
-    print_vector("motor_sign", motor_sign_);
-    print_vector("close_chain_motor_id", close_chain_motor_id_);
-    print_vector("joint_default_angle", joint_default_angle_);
-    print_vector("joint_limits", joint_limits_);
-    print_vector("usd2urdf", usd2urdf_);
-    RCLCPP_INFO(this->get_logger(), "gravity_z_upper: %f", gravity_z_upper_);
-
-    print_vector("motor_id", motor_id_);
-    print_vector("motor_model", motor_model_);
-    print_vector("motor_interface", motor_interface_);
-    RCLCPP_INFO(this->get_logger(), "motor_type: %s", motor_type_.c_str());
-    RCLCPP_INFO(this->get_logger(), "motor_interface_type: %s", motor_interface_type_.c_str());
-    print_vector("motor_num", motor_num_);
-    RCLCPP_INFO(this->get_logger(), "master_id_offset: %d", master_id_offset_);
-
-    RCLCPP_INFO(this->get_logger(), "imu_id: %d", imu_id_);
-    RCLCPP_INFO(this->get_logger(), "imu_type: %s", imu_type_.c_str());
-    RCLCPP_INFO(this->get_logger(), "imu_interface: %s", imu_interface_.c_str());
-    RCLCPP_INFO(this->get_logger(), "imu_interface_type: %s", imu_interface_type_.c_str());
-    RCLCPP_INFO(this->get_logger(), "baudrate: %d", baudrate_);
+    print_vector<long int>("usd2urdf", usd2urdf_);
+    print_vector<double>("clip_cmd", clip_cmd_);
+    print_vector<double>("joint_default_angle", joint_default_angle_);
+    print_vector<double>("joint_limits", joint_limits_);
 }
 
 void InferenceNode::subs_joy_callback(const std::shared_ptr<sensor_msgs::msg::Joy> msg) {
@@ -175,12 +116,11 @@ void InferenceNode::subs_joy_callback(const std::shared_ptr<sensor_msgs::msg::Jo
             reset();
             RCLCPP_INFO(this->get_logger(), "Inference paused");
         }
-        if (is_init_.load()){
-            deinit_motors();
+        if (robot_->is_init_.load()){
+            robot_->deinit_motors();
             RCLCPP_INFO(this->get_logger(), "Motors deinitialized");
         } else {
-            init_motors();
-
+            robot_->init_motors();
             RCLCPP_INFO(this->get_logger(), "Motors initialized");
         }
     }
@@ -189,10 +129,10 @@ void InferenceNode::subs_joy_callback(const std::shared_ptr<sensor_msgs::msg::Jo
             reset();
             RCLCPP_INFO(this->get_logger(), "Inference paused");
         }
-        if (!is_init_.load()){
+        if (!robot_->is_init_.load()){
             RCLCPP_WARN(this->get_logger(), "Motors are not initialized!");
         } else {
-            reset_motors();
+            robot_->reset_motors(joint_default_angle_);
             RCLCPP_INFO(this->get_logger(), "Motors reset");
         }
     }
@@ -219,7 +159,8 @@ void InferenceNode::subs_joy_callback(const std::shared_ptr<sensor_msgs::msg::Jo
                 int obs_num = is_beyondmimic ? motion_obs_num_ : obs_num_;
                 obs_.resize(obs_num);
                 std::fill(obs_.begin(), obs_.end(), 0.0f);
-                std::fill(joint_obs_.begin(), joint_obs_.end(), 0.0f);
+                std::fill(joint_pos_.begin(), joint_pos_.end(), 0.0f);
+                std::fill(joint_vel_.begin(), joint_vel_.end(), 0.0f);
                 std::fill(motion_pos_.begin(), motion_pos_.end(), 0.0f);
                 std::fill(motion_vel_.begin(), motion_vel_.end(), 0.0f);
                 std::fill(cmd_vel_.begin(), cmd_vel_.end(), 0.0f);
@@ -278,13 +219,13 @@ void InferenceNode::reset_motors_srv(const std::shared_ptr<std_srvs::srv::Trigge
         response->message = "Inference is running, cannot reset motors.";
         return;
     }
-    if (!is_init_.load()) {
+    if (!robot_->is_init_.load()) {
         response->success = false;
         response->message = "Motors are not initialized, cannot reset motors.";
         return;
     }
     try {
-        reset_motors();
+        robot_->reset_motors(joint_default_angle_);
         response->success = true;
         response->message = "Motors reset successfully";
     } catch (const std::exception& e) {
@@ -295,13 +236,13 @@ void InferenceNode::reset_motors_srv(const std::shared_ptr<std_srvs::srv::Trigge
 
 void InferenceNode::read_motors_srv(const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
                                      std::shared_ptr<std_srvs::srv::Trigger::Response> response) {
-    if (!is_init_.load()) {
+    if (!robot_->is_init_.load()) {
         response->success = false;
         response->message = "Motors are not initialized, cannot read motors.";
         return;
     }
     try {
-        read_motors();
+        robot_->read_motors();
         response->success = true;
         response->message = "Motors read successfully";
     } catch (const std::exception& e) {
@@ -312,7 +253,7 @@ void InferenceNode::read_motors_srv(const std::shared_ptr<std_srvs::srv::Trigger
 
 void InferenceNode::set_zeros_srv(const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
                                   std::shared_ptr<std_srvs::srv::Trigger::Response> response) {
-    if (!is_init_.load()) {
+    if (!robot_->is_init_.load()) {
         response->success = false;
         response->message = "Motors are not initialized, cannot set zeros.";
         return;
@@ -323,7 +264,7 @@ void InferenceNode::set_zeros_srv(const std::shared_ptr<std_srvs::srv::Trigger::
         return;
     }
     try {
-        set_zeros();
+        robot_->set_zeros();
         response->success = true;
         response->message = "Zeros set successfully";
     } catch (const std::exception& e) {
@@ -335,7 +276,7 @@ void InferenceNode::set_zeros_srv(const std::shared_ptr<std_srvs::srv::Trigger::
 void InferenceNode::clear_errors_srv(const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
                                      std::shared_ptr<std_srvs::srv::Trigger::Response> response) {
     try {
-        clear_errors();
+        robot_->clear_errors();
         response->success = true;
         response->message = "Errors cleared successfully";
     } catch (const std::exception& e) {
@@ -346,13 +287,13 @@ void InferenceNode::clear_errors_srv(const std::shared_ptr<std_srvs::srv::Trigge
 
 void InferenceNode::init_motors_srv(const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
                                     std::shared_ptr<std_srvs::srv::Trigger::Response> response) {
-    if (is_init_.load()) {
+    if (robot_->is_init_.load()) {
         response->success = false;
         response->message = "Motors are already initialized, cannot init motors.";
         return;
     }
     try {
-        init_motors();
+        robot_->init_motors();
         response->success = true;
         response->message = "Motors initialized successfully";
     } catch (const std::exception& e) {
@@ -363,13 +304,13 @@ void InferenceNode::init_motors_srv(const std::shared_ptr<std_srvs::srv::Trigger
 
 void InferenceNode::deinit_motors_srv(const std::shared_ptr<std_srvs::srv::Trigger::Request> request,
                                       std::shared_ptr<std_srvs::srv::Trigger::Response> response) {
-    if (!is_init_.load()) {
+    if (!robot_->is_init_.load()) {
         response->success = false;
         response->message = "Motors are not initialized, cannot deinit motors.";
         return;
     }
     try {
-        deinit_motors();
+        robot_->deinit_motors();
         response->success = true;
         response->message = "Motors deinitialized successfully";
     } catch (const std::exception& e) {
@@ -407,8 +348,8 @@ void InferenceNode::publish_joint_states() {
     msg.header.stamp = this->now();
     for (int i = 0; i < joint_num_; i++) {
         msg.name.push_back("joint_" + std::to_string(i+1));
-        msg.position.push_back(joint_obs_[i]);
-        msg.velocity.push_back(joint_obs_[joint_num_ + i]);
+        msg.position.push_back(joint_pos_[i]);
+        msg.velocity.push_back(joint_vel_[i]);
         msg.effort.push_back(joint_torques_[i]);
     }
     joint_state_publisher_->publish(msg);

@@ -54,25 +54,11 @@ void InferenceNode::setup_model(std::unique_ptr<ModelContext>& ctx, std::string 
         *ctx->memory_info, ctx->output_buffer.data(), ctx->output_buffer.size(), ctx->output_shape.data(), ctx->output_shape.size()));
 }
 
-void InferenceNode::setup_motors(){
-    size_t count = 0;
-    motors_.resize(joint_num_);
-    for (size_t i = 0; i < motor_interface_.size(); ++i){
-        for (size_t j = 0; j < motor_num_[i]; ++j){
-            motors_[count] = MotorDriver::create_motor(motor_id_[count], motor_interface_type_, motor_interface_[i], motor_type_, motor_model_[count], master_id_offset_);
-            count += 1;
-        }
-    }
-}
-
-void InferenceNode::setup_imu(){
-    imu_ = IMUDriver::create_imu(imu_id_, imu_interface_type_, imu_interface_, imu_type_, baudrate_);
-}
-
 void InferenceNode::reset() {
     is_running_.store(false);
     std::fill(obs_.begin(), obs_.end(), 0.0f);
-    std::fill(joint_obs_.begin(), joint_obs_.end(), 0.0f);
+    std::fill(joint_pos_.begin(), joint_pos_.end(), 0.0f);
+    std::fill(joint_vel_.begin(), joint_vel_.end(), 0.0f);
     std::fill(motion_pos_.begin(), motion_pos_.end(), 0.0f);
     std::fill(motion_vel_.begin(), motion_vel_.end(), 0.0f);
     std::fill(cmd_vel_.begin(), cmd_vel_.end(), 0.0f);
@@ -98,54 +84,17 @@ void InferenceNode::reset() {
 }
 
 void InferenceNode::apply_action() {
-    if(!is_running_.load() || !is_init_.load()){
+    if(!is_running_.load() || !robot_->is_init_.load()){
         return;
     }
-
-    std::vector<float> motor_target;
     {
         std::unique_lock<std::mutex> lock(act_mutex_);
         for (size_t i = 0; i < act_.size(); i++) {
             act_[i] = act_alpha_ * act_[i] + (1 - act_alpha_) * last_act_[i];
         }
         last_act_ = act_;
-        motor_target = act_;
+        robot_->apply_action(act_);
     }
-
-    if(use_interrupt_ && is_interrupt_.load()){
-        std::unique_lock<std::mutex> lock(interrupt_mutex_);
-        for (size_t i = 0; i < 10; i++) {
-            motor_target[14 + i] = interrupt_action_[i];
-        }
-    }
-
-    {
-        std::unique_lock<std::mutex> lock(joint_mutex_);
-        std::vector<std::function<void()>> tasks;
-        size_t count = 0;
-        exec_motors_parallel([this](std::shared_ptr<MotorDriver>& motor, int idx) {
-            joint_obs_[idx] = motor->get_motor_pos() * motor_sign_[idx];
-            joint_obs_[joint_num_ + idx] = motor->get_motor_spd() * motor_sign_[idx];
-            joint_torques_[idx] = motor->get_motor_current() * motor_sign_[idx];
-            if (motor->get_response_count() > offline_threshold_) {
-                RCLCPP_FATAL(this->get_logger(), "Motor ID %d is offline! Shutting down...", idx);
-                rclcpp::shutdown();
-            }
-        });
-
-        if (!close_chain_motor_id_.empty()){
-            process_close_chain(joint_obs_.data(), joint_obs_.data() + joint_num_, joint_torques_.data(), motor_target.data(), false);
-        }
-    }
-
-    exec_motors_parallel([this, &motor_target](std::shared_ptr<MotorDriver>& motor, int idx) {
-        if (std::find(close_chain_motor_id_.begin(), close_chain_motor_id_.end(), idx) == close_chain_motor_id_.end()){
-            motor->motor_mit_cmd(motor_target[idx] * motor_sign_[idx], 0.0f, kp_[idx], kd_[idx], 0.0f);
-        } else {
-            motor->motor_mit_cmd(0.0f, 0.0f, 0.0f, 0.0f, motor_target[idx] * motor_sign_[idx]);
-        }
-        std::this_thread::sleep_for(std::chrono::microseconds(200));
-    });
 }
 
 void InferenceNode::inference() {
@@ -177,12 +126,12 @@ void InferenceNode::inference() {
             offset += joint_num_ * 2;
         }
 
-        ang_vel_ = imu_->get_ang_vel();
+        ang_vel_ = robot_->get_ang_vel();
         for (int i = 0; i < 3; i++) {
             obs_[i + offset] = ang_vel_[i] * obs_scales_ang_vel_;
         }
         offset += 3;
-        quat_ = imu_->get_quat();
+        quat_ = robot_->get_quat();
         Eigen::Quaternionf q_b2w(quat_[0], quat_[1], quat_[2], quat_[3]);
         Eigen::Vector3f gravity_w(0.0f, 0.0f, -1.0f);
         Eigen::Quaternionf q_w2b = q_b2w.inverse();
@@ -206,14 +155,21 @@ void InferenceNode::inference() {
             offset += 3;
         }
 
-        {
-            std::unique_lock<std::mutex> lock(joint_mutex_);
-            for (int i = 0; i < joint_num_; i++) {
-                obs_[offset + i] = joint_obs_[usd2urdf_[i]] * obs_scales_dof_pos_;
-                obs_[offset + joint_num_ + i] = joint_obs_[joint_num_ + usd2urdf_[i]] * obs_scales_dof_vel_;
-            }
-            publish_joint_states();
+        joint_pos_ = robot_->get_joint_q();
+        joint_vel_ = robot_->get_joint_vel();
+        joint_torques_ = robot_->get_joint_tau();
+        for (int i = 0; i < joint_num_; i++) {
+            obs_[offset + i] = joint_pos_[usd2urdf_[i]] * obs_scales_dof_pos_;
+            obs_[offset + joint_num_ + i] = joint_vel_[usd2urdf_[i]] * obs_scales_dof_vel_;
         }
+        for(size_t i = 0; i < joint_limits_.size() / 2; i++){
+            if(joint_pos_[i] < joint_limits_[i * 2] || joint_pos_[i] > joint_limits_[i * 2 + 1]){
+                RCLCPP_FATAL(this->get_logger(), "Joint %ld out of limit! Shutting down...", i);
+                rclcpp::shutdown();
+                return;
+            }
+        }
+        publish_joint_states();
         offset += joint_num_ * 2;
 
         for (int i = 0; i < joint_num_; i++) {
@@ -229,7 +185,6 @@ void InferenceNode::inference() {
         std::transform(obs_.begin(), obs_.end(), obs_.begin(), [this](float val) {
             return std::clamp(val, -clip_observations_, clip_observations_);
         });
-
 
         bool is_beyondmimic = is_beyondmimic_.load();
         int obs_num = is_beyondmimic ? motion_obs_num_: obs_num_;
@@ -263,6 +218,12 @@ void InferenceNode::inference() {
                 act_[usd2urdf_[i]] = active_ctx_->output_buffer[i];
                 act_[usd2urdf_[i]] = act_[usd2urdf_[i]] * action_scale_ + joint_default_angle_[usd2urdf_[i]];
             }
+            if(use_interrupt_ && is_interrupt_.load()){
+                std::unique_lock<std::mutex> lock(interrupt_mutex_);
+                for (size_t i = 0; i < 10; i++) {
+                    act_[14 + i] = interrupt_action_[i];
+                }
+            }
             publish_action();
         }
 
@@ -280,155 +241,20 @@ void InferenceNode::inference() {
     }
 }
 
-void InferenceNode::reset_motors() {
-    size_t count = 0;
-    std::vector<float> motor_default_q(joint_default_angle_.begin(), joint_default_angle_.end());
-
-    if (!close_chain_motor_id_.empty()){
-        std::vector<float> dummy_vel(joint_num_, 0.0f);
-        std::vector<float> dummy_tau(joint_num_, 0.0f);
-        std::vector<float> dummy_target(joint_num_, 0.0f);
-        process_close_chain(motor_default_q.data(), dummy_vel.data(), dummy_tau.data(), dummy_target.data(), true);
-    }
-
-    exec_motors_parallel([this, &motor_default_q](std::shared_ptr<MotorDriver>& motor, int idx) {
-        if (std::find(close_chain_motor_id_.begin(), close_chain_motor_id_.end(), idx) == close_chain_motor_id_.end()) {
-                motor->motor_mit_cmd(motor_default_q[idx] * motor_sign_[idx], 0.0f, kp_[idx]/2.0f, kd_[idx]/2.0f, 0.0f);
-        } else {
-                motor->motor_mit_cmd(motor_default_q[idx] * motor_sign_[idx], 0.0f, 0.0f, 0.0f, 0.0f);
-        }
-        std::this_thread::sleep_for(std::chrono::microseconds(200));
-    });
-}
-
-void InferenceNode::read_motors() {
-    {
-        std::unique_lock<std::mutex> lock(joint_mutex_);
-        exec_motors_parallel([this](std::shared_ptr<MotorDriver>& motor, int idx) {
-            motor->refresh_motor_status();
-            std::this_thread::sleep_for(std::chrono::microseconds(200));
-            joint_obs_[idx] = motor->get_motor_pos() * motor_sign_[idx];
-            joint_obs_[joint_num_ + idx] = motor->get_motor_spd() * motor_sign_[idx];
-            joint_torques_[idx] = motor->get_motor_current() * motor_sign_[idx];
-        });
-
-        if (!close_chain_motor_id_.empty()) {
-             std::vector<float> dummy_target(joint_num_, 0.0f);
-             process_close_chain(joint_obs_.data(), joint_obs_.data() + joint_num_, joint_torques_.data(), dummy_target.data(), true);
-        }
-        publish_joint_states();
-    }
-}
-
-void InferenceNode::set_zeros() {
-    exec_motors_parallel([](std::shared_ptr<MotorDriver>& motor, int idx) {
-        motor->set_motor_zero();
-        std::this_thread::sleep_for(std::chrono::microseconds(200));
-    });
-}
-
-void InferenceNode::clear_errors() {
-    exec_motors_parallel([](std::shared_ptr<MotorDriver>& motor, int idx) {
-        motor->clear_motor_error();
-        std::this_thread::sleep_for(std::chrono::microseconds(200));
-    });
-}
-
-void InferenceNode::init_motors() {
-    exec_motors_parallel([](std::shared_ptr<MotorDriver>& motor, int idx) {
-        motor->init_motor();
-        std::this_thread::sleep_for(std::chrono::microseconds(200));
-    });
-    is_init_.store(true);
-}
-
-void InferenceNode::deinit_motors() {
-    exec_motors_parallel([](std::shared_ptr<MotorDriver>& motor, int idx) {
-        motor->deinit_motor();
-        std::this_thread::sleep_for(std::chrono::microseconds(200));
-    });
-    is_init_.store(false);
-}
-
-void InferenceNode::exec_motors_parallel(std::function<void(std::shared_ptr<MotorDriver>&, int)> cmd_func) {
-    std::unique_lock<std::mutex> lock(motors_mutex_);
-    std::vector<std::function<void()>> tasks;
-    size_t count = 0;
-    
-    for (size_t i = 0; i < motor_interface_.size(); ++i) {
-        size_t num_motors = motor_num_[i];
-        size_t start_idx = count;
-        tasks.push_back([this, start_idx, num_motors, cmd_func]() {
-            for (size_t j = 0; j < num_motors; ++j) {
-                size_t idx = start_idx + j;
-                cmd_func(motors_[idx], idx); 
-            }
-        });
-        count += num_motors;
-    }
-    thread_pool_->run_parallel(tasks);
-}
-
-
-
-void InferenceNode::process_close_chain(float* q_in, float* vel_in, float* tau_in, float* target, bool forward_only) {
-    Eigen::VectorXd q(2), vel(2), tau(2);
-    int idx1 = close_chain_motor_id_[0];
-    int idx2 = close_chain_motor_id_[1];
-
-    q << q_in[idx1], q_in[idx2];
-    vel << vel_in[idx1], vel_in[idx2];
-    tau << tau[idx1], tau_in[idx2];
-
-    ankle_decouple_->get_forwardQVT(q, vel, tau, true);
-    q_in[idx1] = q[0];
-    q_in[idx2] = q[1];
-    vel_in[idx1] = vel[0];
-    vel_in[idx2] = vel[1];
-    tau_in[idx1] = tau[0];
-    tau_in[idx2] = tau[1];
-
-    if (!forward_only) {
-        tau << kp_[idx1] * (q[0] - target[idx1]) + kd_[idx1] * (0.0f - vel[0]),
-               kp_[idx2] * (q[1] - target[idx2]) + kd_[idx2] * (0.0f - vel[1]);
-        ankle_decouple_->get_decoupleQVT(q, vel, tau, true);
-        target[idx1] = tau[0];
-        target[idx2] = tau[1];
-    }
-
-    idx1 = close_chain_motor_id_[2];
-    idx2 = close_chain_motor_id_[3];
-    q << q_in[idx1], q_in[idx2];
-    vel << vel_in[idx1], vel_in[idx2];
-    tau << tau_in[idx1], tau_in[idx2];
-
-    ankle_decouple_->get_forwardQVT(q, vel, tau, false);
-    q_in[idx1] = q[0];
-    q_in[idx2] = q[1];
-    vel_in[idx1] = vel[0];
-    vel_in[idx2] = vel[1];
-    tau_in[idx1] = tau[0];
-    tau_in[idx2] = tau[1];
-
-    if (!forward_only) {
-        tau << kp_[idx1] * (q[0] - target[idx1]) + kd_[idx1] * (0.0f - vel[0]),
-               kp_[idx2] * (q[1] - target[idx2]) + kd_[idx2] * (0.0f - vel[1]);
-        ankle_decouple_->get_decoupleQVT(q, vel, tau, false);
-        target[idx1] = tau[0];
-        target[idx2] = tau[1];
-    }
-}
-
 int main(int argc, char **argv) {
     rclcpp::init(argc, argv);
-    auto node = std::make_shared<InferenceNode>();
-    rclcpp::executors::MultiThreadedExecutor executor(rclcpp::ExecutorOptions(), 4);
-    executor.add_node(node);
-    RCLCPP_INFO(node->get_logger(), "Press 'A' to initialize/deinitialize motors");
-    RCLCPP_INFO(node->get_logger(), "Press 'X' to reset motors");
-    RCLCPP_INFO(node->get_logger(), "Press 'B' to start/pause inference");
-    RCLCPP_INFO(node->get_logger(), "Press 'Y' to switch between joystick and /cmd_vel control");
-    executor.spin();
+    try {
+        auto node = std::make_shared<InferenceNode>();
+        rclcpp::executors::MultiThreadedExecutor executor(rclcpp::ExecutorOptions(), 4);
+        executor.add_node(node);
+        RCLCPP_INFO(node->get_logger(), "Press 'A' to initialize/deinitialize motors");
+        RCLCPP_INFO(node->get_logger(), "Press 'X' to reset motors");
+        RCLCPP_INFO(node->get_logger(), "Press 'B' to start/pause inference");
+        RCLCPP_INFO(node->get_logger(), "Press 'Y' to switch between joystick and /cmd_vel control");
+        executor.spin();
+    } catch (const std::exception &e) {
+        RCLCPP_FATAL(rclcpp::get_logger("main"), "Exception caught: %s", e.what());
+    }
     rclcpp::shutdown();
     return 0;
 }
