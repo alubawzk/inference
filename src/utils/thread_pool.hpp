@@ -37,8 +37,8 @@ public:
 
     template<class F, class... Args>
     auto enqueue(F&& f, Args&&... args) 
-        -> std::future<typename std::result_of<F(Args...)>::type> {
-        using return_type = typename std::result_of<F(Args...)>::type;
+        -> std::future<typename std::invoke_result<F, Args...>::type> {
+        using return_type = typename std::invoke_result<F, Args...>::type;
 
         auto task = std::make_shared<std::packaged_task<return_type()>>(
             std::bind(std::forward<F>(f), std::forward<Args>(args)...)
@@ -58,30 +58,17 @@ public:
     }
 
     void run_parallel(const std::vector<std::function<void()>>& tasks_to_run) {
-        if (tasks_to_run.empty()) return;
-
-        size_t task_count = tasks_to_run.size();
-        std::atomic<size_t> remaining{task_count};
-        std::mutex mtx;
-        std::condition_variable cv;
-
-        {
-            std::unique_lock<std::mutex> lock(queue_mutex);
-            if(stop) throw std::runtime_error("enqueue on stopped ThreadPool");
-            
-            for(const auto& task : tasks_to_run) {
-                this->tasks.emplace([&remaining, &cv, &task]() {
-                    task();
-                    if(remaining.fetch_sub(1) == 1) {
-                         cv.notify_one();
-                    }
-                });
-            }
+        std::vector<std::future<void>> futures;
+        futures.reserve(tasks_to_run.size());
+        for (const auto& task : tasks_to_run) {
+            futures.push_back(enqueue(task));
         }
-        condition.notify_all();
-
-        std::unique_lock<std::mutex> lock(mtx);
-        cv.wait(lock, [&remaining]{ return remaining == 0; });
+        for (auto& fut : futures) {
+            fut.wait();
+        }
+        for (auto& fut : futures) {
+            fut.get();
+        }
     }
 
     ~ThreadPool() {
