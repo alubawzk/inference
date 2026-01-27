@@ -46,10 +46,10 @@ class RobotInterface {
     void apply_action(std::vector<float> action);
     void init_motors();
     void deinit_motors();
-    void reset_motors(std::vector<double> joint_default_angle);
+    void reset_joints(std::vector<double> joint_default_angle);
     void set_zeros();
     void clear_errors();
-    void read_motors();
+    void refresh_joints();
     std::vector<float> get_joint_q() {
         if (!is_init_.load()) {
             throw std::runtime_error("Motors not initialized");
@@ -98,10 +98,10 @@ class RobotInterface {
 
     std::mutex motors_mutex_, joint_mutex_;
     std::vector<float> joint_q_, joint_vel_, joint_tau_;
+    std::vector<int> close_chain_motor_idx_;
 
     void setup_motors();
     void setup_imu();
 
     void exec_motors_parallel(std::function<void(std::shared_ptr<MotorDriver>&, int)> cmd_func);
-    void process_close_chain(float* q_in, float* vel_in, float* tau_in, float* target, bool forward_only);
 };
