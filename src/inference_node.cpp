@@ -103,14 +103,17 @@ void InferenceNode::inference() {
     if (pthread_setschedparam(pthread_self(), SCHED_FIFO, &sp) != 0) {
         throw std::runtime_error("Failed to set realtime priority for inference thread");
     }
+    const double loop_hz = 1.0 / (dt_ * decimation_);
+    rclcpp::Rate loop_rate(loop_hz);
     auto period = std::chrono::microseconds(static_cast<long long>(dt_ * 1000 * 1000 * decimation_));
 
     while(rclcpp::ok()){
         auto loop_start = std::chrono::steady_clock::now();
-        if(!is_running_.load()){
-            std::this_thread::sleep_for(period);
-            continue;
-        }
+        // if(!is_running_.load()){
+        //     //std::this_thread::sleep_for(period);
+        //     loop_rate.sleep();
+        //     continue;
+        // }
 
         int offset = 0;
 
@@ -128,7 +131,7 @@ void InferenceNode::inference() {
             offset += joint_num_ * 2;
         }
 
-        read_imu();
+        // read_imu();
         for (int i = 0; i < 3; i++) {
             obs_[i + offset] = ang_vel_[i] * obs_scales_ang_vel_;
         }
@@ -156,7 +159,7 @@ void InferenceNode::inference() {
             offset += 3;
         }
 
-        read_joints();
+        // read_joints();
         for (int i = 0; i < joint_num_; i++) {
             obs_[offset + i] = (joint_pos_[usd2urdf_[i]] - joint_default_angle_[usd2urdf_[i]]) * obs_scales_dof_pos_;
             obs_[offset + joint_num_ + i] = joint_vel_[usd2urdf_[i]] * obs_scales_dof_vel_;
@@ -229,20 +232,17 @@ void InferenceNode::inference() {
         auto loop_end = std::chrono::steady_clock::now();
         // 使用微秒进行计算
         auto elapsed_time = std::chrono::duration_cast<std::chrono::microseconds>(loop_end - loop_start);
-        auto sleep_time = period - elapsed_time;
-
-        if (sleep_time > std::chrono::microseconds(0)) {
-            std::this_thread::sleep_for(sleep_time);
-        } else {
+        if (elapsed_time > period) {
             // 警告信息也使用更精确的单位
             RCLCPP_WARN(this->get_logger(), "Inference loop overran! Took %ld us, but period is %ld us.", elapsed_time.count(), period.count());
         }
+        loop_rate.sleep();
     }
 }
 
 int main(int argc, char **argv) {
     pthread_setname_np(pthread_self(), "main");
-    struct sched_param sp{}; sp.sched_priority = 70;
+    struct sched_param sp{}; sp.sched_priority = 90;
     if (pthread_setschedparam(pthread_self(), SCHED_FIFO, &sp) != 0) {
         throw std::runtime_error("Failed to set realtime priority for main thread");
     }
