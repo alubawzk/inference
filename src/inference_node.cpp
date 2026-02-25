@@ -84,9 +84,9 @@ void InferenceNode::reset() {
 }
 
 void InferenceNode::apply_action() {
-    if(!is_running_.load() || !robot_->is_init_.load()){
-        return;
-    }
+    // if(!is_running_.load() || !robot_->is_init_.load()){
+    //     return;
+    // }
     {
         std::unique_lock<std::mutex> lock(act_mutex_);
         for (size_t i = 0; i < act_.size(); i++) {

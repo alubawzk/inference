@@ -20,7 +20,7 @@ motors:
          1, 1, 1, 1, 0, 0, 1,
          0, 0, 0, 0, 0, 0,
          0, 0, 0, 0, 0, 0]
-    master_id_offset: 16
+    master_id_offset: 10
 
 robot:
     kp: 
