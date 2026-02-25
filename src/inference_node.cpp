@@ -109,8 +109,7 @@ void InferenceNode::inference() {
 
     while(rclcpp::ok()){
         auto loop_start = std::chrono::steady_clock::now();
-        // if(!is_running_.load()){
-        //     //std::this_thread::sleep_for(period);
+        // if(!is_running_.load() || !robot_->is_init_.load()){
         //     loop_rate.sleep();
         //     continue;
         // }
@@ -209,16 +208,37 @@ void InferenceNode::inference() {
             }
         }
 
+        const auto infer_start = std::chrono::steady_clock::now();
         active_ctx_->session->Run(Ort::RunOptions{nullptr}, 
             active_ctx_->input_names_raw.data(), active_ctx_->input_tensor.get(), active_ctx_->num_inputs,
             active_ctx_->output_names_raw.data(), active_ctx_->output_tensor.get(), active_ctx_->num_outputs);
+        const auto infer_us = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::steady_clock::now() - infer_start).count();
+        static uint64_t infer_count = 0;
+        static uint64_t infer_us_sum = 0;
+        infer_count += 1;
+        infer_us_sum += static_cast<uint64_t>(infer_us);
+        if (infer_count % 100 == 0) {
+            RCLCPP_INFO(this->get_logger(),
+                        "Inference latency: last=%ld us, avg(100)=%lu us",
+                        infer_us,
+                        infer_us_sum / 100);
+            infer_us_sum = 0;
+        }
         
         {
             std::unique_lock<std::mutex> lock(act_mutex_);
+            constexpr double kSinePeriodSec = 20.0;
+            const float sine_action = sine_amplitude_ * static_cast<float>(
+                std::sin(2.0 * std::acos(-1.0) * (this->now().seconds() / kSinePeriodSec)));
             for (int i = 0; i < active_ctx_->output_buffer.size(); i++) {
-                active_ctx_->output_buffer[i] = std::clamp(active_ctx_->output_buffer[i], -clip_actions_, clip_actions_);
-                act_[usd2urdf_[i]] = active_ctx_->output_buffer[i];
-                act_[usd2urdf_[i]] = act_[usd2urdf_[i]] * action_scale_ + joint_default_angle_[usd2urdf_[i]];
+                if (use_sine_trajectory_) {
+                    act_[usd2urdf_[i]] = sine_action;
+                } else {
+                    active_ctx_->output_buffer[i] = std::clamp(active_ctx_->output_buffer[i], -clip_actions_, clip_actions_);
+                    act_[usd2urdf_[i]] = active_ctx_->output_buffer[i];
+                    act_[usd2urdf_[i]] = act_[usd2urdf_[i]] * action_scale_ + joint_default_angle_[usd2urdf_[i]];
+                }
             }
             if(use_interrupt_ && is_interrupt_.load()){
                 std::unique_lock<std::mutex> lock(interrupt_mutex_);

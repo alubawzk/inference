@@ -149,7 +149,7 @@ class InferenceNode : public rclcpp::Node {
     int offline_threshold_ = 10;
     std::atomic<bool> is_running_{false}, is_joy_control_{true}, is_interrupt_{false}, is_beyondmimic_{false};
     std::string model_name_, model_path_, motion_name_, motion_path_, motion_model_name_, motion_model_path_, perception_obs_topic_;
-    bool use_interrupt_, use_beyondmimic_, use_attn_enc_;
+    bool use_interrupt_, use_beyondmimic_, use_attn_enc_, use_sine_trajectory_;
     int obs_num_, motion_obs_num_, perception_obs_num_, frame_stack_, motion_frame_stack_, joint_num_;
     int decimation_;
     std::unique_ptr<Ort::Env> env_;
@@ -168,7 +168,7 @@ class InferenceNode : public rclcpp::Node {
     float dt_;
     float obs_scales_lin_vel_, obs_scales_ang_vel_, obs_scales_dof_pos_, obs_scales_dof_vel_,
         obs_scales_gravity_b_, clip_observations_;
-    float action_scale_, clip_actions_;
+    float action_scale_, clip_actions_, sine_freq_hz_, sine_amplitude_;
     std::vector<double> clip_cmd_, joint_default_angle_, joint_limits_;
     std::vector<long int> usd2urdf_;
     bool is_first_frame_;

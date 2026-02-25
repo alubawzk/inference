@@ -128,7 +128,7 @@ void RobotInterface::apply_action(std::vector<float> action) {
     }
 
     exec_motors_parallel([this, &action](std::shared_ptr<MotorDriver>& motor, int idx) {
-        if (idx != 0) return;  // ✅ 只给 can0 的第一个电机发命令（global idx = 0）
+        if (idx != 0 && idx != 1 && idx != 2 && idx != 6 && idx != 7 && idx != 8 && idx != 12 && idx != 13 && idx != 14 && idx != 18 && idx != 19 && idx != 20) return;  // ✅ 只给 can0 的第一个电机发命令（global idx = 0）
         if (std::find(close_chain_motor_idx_.begin(), close_chain_motor_idx_.end(), idx) == close_chain_motor_idx_.end()){
             motor->motor_mit_cmd(action[idx] * robot_cfg_->motor_sign_[idx], 0.0f, robot_cfg_->kp_[idx], robot_cfg_->kd_[idx], 0.0f);
         } else {
@@ -220,7 +220,7 @@ void RobotInterface::clear_errors() {
 
 void RobotInterface::init_motors() {
     exec_motors_parallel([](std::shared_ptr<MotorDriver>& motor, int idx) {
-        if (idx != 0) return;  // ✅ 只给 can0 的第一个电机发命令（global idx = 0）
+        // if (idx != 0) return;  // ✅ 只给 can0 的第一个电机发命令（global idx = 0）
         motor->init_motor();
     });
     is_init_.store(true);
