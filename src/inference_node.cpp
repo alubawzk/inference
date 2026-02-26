@@ -99,7 +99,7 @@ void InferenceNode::apply_action() {
 
 void InferenceNode::inference() {
     pthread_setname_np(pthread_self(), "inference");
-    struct sched_param sp{}; sp.sched_priority = 70;
+    struct sched_param sp{}; sp.sched_priority = 99;
     if (pthread_setschedparam(pthread_self(), SCHED_FIFO, &sp) != 0) {
         throw std::runtime_error("Failed to set realtime priority for inference thread");
     }
@@ -113,6 +113,10 @@ void InferenceNode::inference() {
         //     loop_rate.sleep();
         //     continue;
         // }
+        if(!robot_->is_init_.load()){
+            loop_rate.sleep();
+            continue;
+        }
 
         int offset = 0;
 
@@ -208,23 +212,23 @@ void InferenceNode::inference() {
             }
         }
 
-        const auto infer_start = std::chrono::steady_clock::now();
+        // const auto infer_start = std::chrono::steady_clock::now();
         active_ctx_->session->Run(Ort::RunOptions{nullptr}, 
             active_ctx_->input_names_raw.data(), active_ctx_->input_tensor.get(), active_ctx_->num_inputs,
             active_ctx_->output_names_raw.data(), active_ctx_->output_tensor.get(), active_ctx_->num_outputs);
-        const auto infer_us = std::chrono::duration_cast<std::chrono::microseconds>(
-            std::chrono::steady_clock::now() - infer_start).count();
-        static uint64_t infer_count = 0;
-        static uint64_t infer_us_sum = 0;
-        infer_count += 1;
-        infer_us_sum += static_cast<uint64_t>(infer_us);
-        if (infer_count % 100 == 0) {
-            RCLCPP_INFO(this->get_logger(),
-                        "Inference latency: last=%ld us, avg(100)=%lu us",
-                        infer_us,
-                        infer_us_sum / 100);
-            infer_us_sum = 0;
-        }
+        // const auto infer_us = std::chrono::duration_cast<std::chrono::microseconds>(
+        //     std::chrono::steady_clock::now() - infer_start).count();
+        // static uint64_t infer_count = 0;
+        // static uint64_t infer_us_sum = 0;
+        // infer_count += 1;
+        // infer_us_sum += static_cast<uint64_t>(infer_us);
+        // if (infer_count % 100 == 0) {
+        //     RCLCPP_INFO(this->get_logger(),
+        //                 "Inference latency: last=%ld us, avg(100)=%lu us",
+        //                 infer_us,
+        //                 infer_us_sum / 100);
+        //     infer_us_sum = 0;
+        // }
         
         {
             std::unique_lock<std::mutex> lock(act_mutex_);
@@ -262,7 +266,7 @@ void InferenceNode::inference() {
 
 int main(int argc, char **argv) {
     pthread_setname_np(pthread_self(), "main");
-    struct sched_param sp{}; sp.sched_priority = 90;
+    struct sched_param sp{}; sp.sched_priority = 99;
     if (pthread_setschedparam(pthread_self(), SCHED_FIFO, &sp) != 0) {
         throw std::runtime_error("Failed to set realtime priority for main thread");
     }

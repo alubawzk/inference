@@ -94,6 +94,14 @@ class InferenceNode : public rclcpp::Node {
             this->create_publisher<sensor_msgs::msg::Imu>("/imu", control_command_qos);
         joint_state_publisher_ =
             this->create_publisher<sensor_msgs::msg::JointState>("/joint_states", control_command_qos);
+        inference_hz_test_publisher_ =
+            this->create_publisher<std_msgs::msg::Float32MultiArray>("/inference_hz_test", sensor_data_qos);
+        robot_->set_apply_action_test_publish_cb([this]() {
+            static float hz_test_seq = 0.0f;
+            std_msgs::msg::Float32MultiArray hz_test_msg;
+            hz_test_msg.data.push_back(hz_test_seq++);
+            inference_hz_test_publisher_->publish(hz_test_msg);
+        });
         inference_thread_ = std::thread(&InferenceNode::inference, this);
         timer_pub_ = this->create_wall_timer(std::chrono::milliseconds((int)(dt_ * 1000)),
                                              std::bind(&InferenceNode::apply_action, this));
@@ -162,6 +170,7 @@ class InferenceNode : public rclcpp::Node {
     rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr action_publisher_;
     rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr imu_publisher_;
     rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr joint_state_publisher_;
+    rclcpp::Publisher<std_msgs::msg::Float32MultiArray>::SharedPtr inference_hz_test_publisher_;
     rclcpp::TimerBase::SharedPtr timer_pub_;
     std::thread inference_thread_;
     float act_alpha_, gyro_alpha_, angle_alpha_;

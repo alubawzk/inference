@@ -71,21 +71,21 @@ void RobotInterface::setup_imu(){
 }
 
 void RobotInterface::apply_action(std::vector<float> action) {
-    // if(!is_init_.load()){
-    //     return;
-    // }
+    if(!is_init_.load()){
+        return;
+    }
 
     {
         std::unique_lock<std::mutex> lock(joint_mutex_);
         std::vector<std::function<void()>> tasks;
-        // exec_motors_parallel([this](std::shared_ptr<MotorDriver>& motor, int idx) {
-        //     joint_q_[idx] = motor->get_motor_pos() * robot_cfg_->motor_sign_[idx];
-        //     joint_vel_[idx] = motor->get_motor_spd() * robot_cfg_->motor_sign_[idx];
-        //     joint_tau_[idx] = motor->get_motor_current() * robot_cfg_->motor_sign_[idx];
-        //     if (motor->get_response_count() > offline_threshold_) {
-        //         throw std::runtime_error("Motor " + std::to_string(idx) + " offline");
-        //     }
-        // });
+        exec_motors_parallel([this](std::shared_ptr<MotorDriver>& motor, int idx) {
+            joint_q_[idx] = motor->get_motor_pos() * robot_cfg_->motor_sign_[idx];
+            joint_vel_[idx] = motor->get_motor_spd() * robot_cfg_->motor_sign_[idx];
+            joint_tau_[idx] = motor->get_motor_current() * robot_cfg_->motor_sign_[idx];
+            // if (motor->get_response_count() > offline_threshold_) {
+            //     throw std::runtime_error("Motor " + std::to_string(idx) + " offline");
+            // }
+        });
 
         if (!close_chain_motor_idx_.empty()){
             Eigen::VectorXd q(2), vel(2), tau(2);
@@ -128,13 +128,16 @@ void RobotInterface::apply_action(std::vector<float> action) {
     }
 
     exec_motors_parallel([this, &action](std::shared_ptr<MotorDriver>& motor, int idx) {
-        if (idx != 0 && idx != 1 && idx != 2 && idx != 6 && idx != 7 && idx != 8 && idx != 12 && idx != 13 && idx != 14 && idx != 18 && idx != 19 && idx != 20) return;  // ✅ 只给 can0 的第一个电机发命令（global idx = 0）
+        if (idx != 0 && idx != 1 && idx != 6 && idx != 7 && idx != 12 && idx != 13 && idx != 18 && idx != 19) return;  // ✅ 只给 can0 的第一个电机发命令（global idx = 0）
         if (std::find(close_chain_motor_idx_.begin(), close_chain_motor_idx_.end(), idx) == close_chain_motor_idx_.end()){
             motor->motor_mit_cmd(action[idx] * robot_cfg_->motor_sign_[idx], 0.0f, robot_cfg_->kp_[idx], robot_cfg_->kd_[idx], 0.0f);
         } else {
             motor->motor_mit_cmd(0.0f, 0.0f, 0.0f, 0.0f, action[idx] * robot_cfg_->motor_sign_[idx]);
         }
     });
+    if (apply_action_test_publish_cb_) {
+        apply_action_test_publish_cb_();
+    }
 }
 
 void RobotInterface::reset_joints(std::vector<double> joint_default_angle) {

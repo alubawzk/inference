@@ -4,6 +4,7 @@
 #include <vector>
 #include <mutex>
 #include <atomic>
+#include <functional>
 #include <condition_variable>
 #include <algorithm>
 #include <memory>
@@ -44,6 +45,9 @@ class RobotInterface {
     };
 
     void apply_action(std::vector<float> action);
+    void set_apply_action_test_publish_cb(std::function<void()> cb) {
+        apply_action_test_publish_cb_ = std::move(cb);
+    }
     void init_motors();
     void deinit_motors();
     void reset_joints(std::vector<double> joint_default_angle);
@@ -99,6 +103,7 @@ class RobotInterface {
     std::mutex motors_mutex_, joint_mutex_;
     std::vector<float> joint_q_, joint_vel_, joint_tau_;
     std::vector<int> close_chain_motor_idx_;
+    std::function<void()> apply_action_test_publish_cb_;
 
     void setup_motors();
     void setup_imu();
