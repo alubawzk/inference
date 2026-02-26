@@ -182,7 +182,16 @@ class InferenceNode : public rclcpp::Node {
     std::vector<long int> usd2urdf_;
     bool is_first_frame_;
     float gravity_z_upper_;
-    int last_button0_ = 0, last_button1_ = 0, last_button2_ = 0, last_button3_ = 0, last_button4_ = 0;
+    int joy_btn_init_ = 0;
+    int joy_btn_reset_ = 2;
+    int joy_btn_toggle_inference_ = 1;
+    int joy_btn_toggle_control_ = 3;
+    int joy_btn_toggle_special_mode_ = 4;
+    int last_joy_btn_init_ = 0;
+    int last_joy_btn_reset_ = 0;
+    int last_joy_btn_toggle_inference_ = 0;
+    int last_joy_btn_toggle_control_ = 0;
+    int last_joy_btn_toggle_special_mode_ = 0;
     std::shared_ptr<MotionLoader> motion_loader_;
     size_t motion_frame_ = 0;
     std::vector<const char *> input_names_raw_, output_names_raw_;

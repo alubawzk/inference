@@ -21,6 +21,11 @@ inference_node:
         use_sine_trajectory: true
         sine_freq_hz: 500.0
         sine_amplitude: 1.0
+        joy_button_init_motors: 4
+        joy_button_reset_motors: 1
+        joy_button_toggle_inference: 0
+        joy_button_toggle_control: 3
+        joy_button_toggle_special_mode: 2
         usd2urdf: [0, 6, 12, 1, 7, 13, 18, 2, 8, 14, 19, 3, 9, 15, 20, 4, 10, 16, 21, 5, 11, 17, 22]
         clip_cmd: 
             [-0.4, 0.6,

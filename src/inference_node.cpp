@@ -84,9 +84,9 @@ void InferenceNode::reset() {
 }
 
 void InferenceNode::apply_action() {
-    // if(!is_running_.load() || !robot_->is_init_.load()){
-    //     return;
-    // }
+    if(!is_running_.load() || !robot_->is_init_.load()){
+        return;
+    }
     {
         std::unique_lock<std::mutex> lock(act_mutex_);
         for (size_t i = 0; i < act_.size(); i++) {
@@ -109,14 +109,14 @@ void InferenceNode::inference() {
 
     while(rclcpp::ok()){
         auto loop_start = std::chrono::steady_clock::now();
-        // if(!is_running_.load() || !robot_->is_init_.load()){
-        //     loop_rate.sleep();
-        //     continue;
-        // }
-        if(!robot_->is_init_.load()){
+        if(!is_running_.load() || !robot_->is_init_.load()){
             loop_rate.sleep();
             continue;
         }
+        // if(!robot_->is_init_.load()){
+        //     loop_rate.sleep();
+        //     continue;
+        // }
 
         int offset = 0;
 
@@ -275,10 +275,7 @@ int main(int argc, char **argv) {
         auto node = std::make_shared<InferenceNode>();
         rclcpp::executors::MultiThreadedExecutor executor(rclcpp::ExecutorOptions(), 4);
         executor.add_node(node);
-        RCLCPP_INFO(node->get_logger(), "Press 'A' to initialize/deinitialize motors");
-        RCLCPP_INFO(node->get_logger(), "Press 'X' to reset motors");
-        RCLCPP_INFO(node->get_logger(), "Press 'B' to start/pause inference");
-        RCLCPP_INFO(node->get_logger(), "Press 'Y' to switch between joystick and /cmd_vel control");
+        RCLCPP_INFO(node->get_logger(), "Joystick mappings are configurable in inference.yaml.");
         executor.spin();
     } catch (const std::exception &e) {
         RCLCPP_FATAL(rclcpp::get_logger("main"), "Exception caught: %s", e.what());

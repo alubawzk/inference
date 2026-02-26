@@ -31,6 +31,11 @@ void InferenceNode::load_config() {
     this->declare_parameter<bool>("use_sine_trajectory", false);
     this->declare_parameter<float>("sine_freq_hz", 500.0);
     this->declare_parameter<float>("sine_amplitude", 1.0);
+    this->declare_parameter<int>("joy_button_init_motors", 0);
+    this->declare_parameter<int>("joy_button_reset_motors", 2);
+    this->declare_parameter<int>("joy_button_toggle_inference", 1);
+    this->declare_parameter<int>("joy_button_toggle_control", 3);
+    this->declare_parameter<int>("joy_button_toggle_special_mode", 4);
     this->declare_parameter<std::vector<long int>>("usd2urdf", std::vector<long int>{});
     this->declare_parameter<std::vector<double>>("clip_cmd", std::vector<double>{});
     this->declare_parameter<std::vector<double>>("joint_default_angle", std::vector<double>{});
@@ -67,6 +72,11 @@ void InferenceNode::load_config() {
     this->get_parameter("use_sine_trajectory", use_sine_trajectory_);
     this->get_parameter("sine_freq_hz", sine_freq_hz_);
     this->get_parameter("sine_amplitude", sine_amplitude_);
+    this->get_parameter("joy_button_init_motors", joy_btn_init_);
+    this->get_parameter("joy_button_reset_motors", joy_btn_reset_);
+    this->get_parameter("joy_button_toggle_inference", joy_btn_toggle_inference_);
+    this->get_parameter("joy_button_toggle_control", joy_btn_toggle_control_);
+    this->get_parameter("joy_button_toggle_special_mode", joy_btn_toggle_special_mode_);
     this->get_parameter("usd2urdf", usd2urdf_);
     this->get_parameter("clip_cmd", clip_cmd_);
     this->get_parameter("joint_default_angle", joint_default_angle_);
@@ -101,6 +111,11 @@ void InferenceNode::load_config() {
     RCLCPP_INFO(this->get_logger(), "use_sine_trajectory: %s", use_sine_trajectory_ ? "true" : "false");
     RCLCPP_INFO(this->get_logger(), "sine_freq_hz: %f", sine_freq_hz_);
     RCLCPP_INFO(this->get_logger(), "sine_amplitude: %f", sine_amplitude_);
+    RCLCPP_INFO(this->get_logger(), "joy_button_init_motors: %d", joy_btn_init_);
+    RCLCPP_INFO(this->get_logger(), "joy_button_reset_motors: %d", joy_btn_reset_);
+    RCLCPP_INFO(this->get_logger(), "joy_button_toggle_inference: %d", joy_btn_toggle_inference_);
+    RCLCPP_INFO(this->get_logger(), "joy_button_toggle_control: %d", joy_btn_toggle_control_);
+    RCLCPP_INFO(this->get_logger(), "joy_button_toggle_special_mode: %d", joy_btn_toggle_special_mode_);
     print_vector<long int>("usd2urdf", usd2urdf_);
     print_vector<double>("clip_cmd", clip_cmd_);
     print_vector<double>("joint_default_angle", joint_default_angle_);
@@ -108,19 +123,42 @@ void InferenceNode::load_config() {
 }
 
 void InferenceNode::subs_joy_callback(const std::shared_ptr<sensor_msgs::msg::Joy> msg) {
+    auto get_button_value = [&](int idx) -> int {
+        if (idx < 0) {
+            return 0;
+        }
+        size_t button_idx = static_cast<size_t>(idx);
+        if (button_idx >= msg->buttons.size()) {
+            return 0;
+        }
+        return msg->buttons[button_idx];
+    };
+    auto get_axis_value = [&](size_t idx) -> float {
+        if (idx >= msg->axes.size()) {
+            return 0.0f;
+        }
+        return msg->axes[idx];
+    };
+    auto is_rising_edge = [&](int button_idx, int &last_state) -> bool {
+        const int current_state = get_button_value(button_idx);
+        const bool rising_edge = (current_state == 1 && current_state != last_state);
+        last_state = current_state;
+        return rising_edge;
+    };
+
     if (is_joy_control_){
         std::unique_lock<std::mutex> lock(cmd_mutex_);
-        cmd_vel_[0] = std::clamp(msg->axes[3] * clip_cmd_[1], clip_cmd_[0], clip_cmd_[1]);
-        cmd_vel_[1] = std::clamp(msg->axes[2] * clip_cmd_[3], clip_cmd_[2], clip_cmd_[3]);
-            if (msg->buttons[6] == 1) {
-            cmd_vel_[2] = std::clamp(msg->buttons[6] * clip_cmd_[5], clip_cmd_[4], clip_cmd_[5]);
-            } else if (msg->buttons[7] == 1) {
-            cmd_vel_[2] = std::clamp(-msg->buttons[7] * clip_cmd_[5], clip_cmd_[4], clip_cmd_[5]);
+        cmd_vel_[0] = std::clamp(get_axis_value(3) * clip_cmd_[1], clip_cmd_[0], clip_cmd_[1]);
+        cmd_vel_[1] = std::clamp(get_axis_value(2) * clip_cmd_[3], clip_cmd_[2], clip_cmd_[3]);
+            if (get_button_value(6) == 1) {
+            cmd_vel_[2] = std::clamp(static_cast<float>(get_button_value(6)) * clip_cmd_[5], clip_cmd_[4], clip_cmd_[5]);
+            } else if (get_button_value(7) == 1) {
+            cmd_vel_[2] = std::clamp(-static_cast<float>(get_button_value(7)) * clip_cmd_[5], clip_cmd_[4], clip_cmd_[5]);
             } else {
             cmd_vel_[2] = 0.0;
         }
     }
-    if ((msg->buttons[0] == 1 && msg->buttons[0] != last_button0_)) {
+    if (is_rising_edge(joy_btn_init_, last_joy_btn_init_)) {
         if(is_running_.load()){
             reset();
             RCLCPP_INFO(this->get_logger(), "Inference paused");
@@ -133,7 +171,7 @@ void InferenceNode::subs_joy_callback(const std::shared_ptr<sensor_msgs::msg::Jo
             RCLCPP_INFO(this->get_logger(), "Motors initialized");
         }
     }
-    if (msg->buttons[1] == 1 && msg->buttons[1] != last_button1_) {
+    if (is_rising_edge(joy_btn_reset_, last_joy_btn_reset_)) {
         if (is_running_.load()){
             reset();
             RCLCPP_INFO(this->get_logger(), "Inference paused");
@@ -145,16 +183,16 @@ void InferenceNode::subs_joy_callback(const std::shared_ptr<sensor_msgs::msg::Jo
             RCLCPP_INFO(this->get_logger(), "Motors reset");
         }
     }
-    if (msg->buttons[2] == 1 && msg->buttons[2] != last_button2_) {
+    if (is_rising_edge(joy_btn_toggle_inference_, last_joy_btn_toggle_inference_)) {
         is_running_.store(!is_running_.load());
         RCLCPP_INFO(this->get_logger(), "Inference %s", is_running_.load() ? "started" : "paused");
     }
-    if (msg->buttons[3] == 1 && msg->buttons[3] != last_button3_) {
+    if (is_rising_edge(joy_btn_toggle_control_, last_joy_btn_toggle_control_)) {
         is_joy_control_.store(!is_joy_control_);
         RCLCPP_INFO(this->get_logger(), "Controlled by %s", is_joy_control_.load() ? "joy" : "/cmd_vel");
     }
     if (use_interrupt_ || use_beyondmimic_) {
-        if (msg->buttons[4] == 1 && msg->buttons[4] != last_button4_) {
+        if (is_rising_edge(joy_btn_toggle_special_mode_, last_joy_btn_toggle_special_mode_)) {
             if(use_interrupt_){
                 is_interrupt_.store(!is_interrupt_.load());
                 RCLCPP_INFO(this->get_logger(), "Interrupt mode %s", is_interrupt_.load() ? "enabled" : "disabled");
@@ -186,12 +224,7 @@ void InferenceNode::subs_joy_callback(const std::shared_ptr<sensor_msgs::msg::Jo
                 RCLCPP_INFO(this->get_logger(), "Beyondmimic mode %s", is_beyondmimic ? "enabled" : "disabled");
             }
         }
-        last_button4_ = msg->buttons[4];
     }
-    last_button0_ = msg->buttons[0];
-    last_button1_ = msg->buttons[1];
-    last_button2_ = msg->buttons[2];
-    last_button3_ = msg->buttons[3];
 }
 
 void InferenceNode::subs_cmd_callback(const std::shared_ptr<geometry_msgs::msg::Twist> msg){
