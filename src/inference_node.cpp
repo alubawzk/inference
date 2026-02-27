@@ -162,7 +162,7 @@ void InferenceNode::inference() {
             offset += 3;
         }
 
-        // read_joints();
+        read_joints();
         for (int i = 0; i < joint_num_; i++) {
             obs_[offset + i] = (joint_pos_[usd2urdf_[i]] - joint_default_angle_[usd2urdf_[i]]) * obs_scales_dof_pos_;
             obs_[offset + joint_num_ + i] = joint_vel_[usd2urdf_[i]] * obs_scales_dof_vel_;

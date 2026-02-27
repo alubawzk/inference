@@ -103,7 +103,7 @@ class InferenceNode : public rclcpp::Node {
             inference_hz_test_publisher_->publish(hz_test_msg);
         });
         inference_thread_ = std::thread(&InferenceNode::inference, this);
-        timer_pub_ = this->create_wall_timer(std::chrono::milliseconds((int)(dt_ * 1000)),
+        timer_pub_ = this->create_wall_timer(std::chrono::microseconds(static_cast<int64_t>(dt_ * 1000000.0)),
                                              std::bind(&InferenceNode::apply_action, this));
 
         reset_joints_service_ = this->create_service<std_srvs::srv::Trigger>(

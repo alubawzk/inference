@@ -1,4 +1,7 @@
 #include "robot_interface.hpp"
+#include <cstring>
+#include <pthread.h>
+#include <sched.h>
 
 RobotInterface::RobotInterface(const std::string& config_file) {
     YAML::Node config = YAML::LoadFile(config_file);
@@ -53,6 +56,22 @@ RobotInterface::RobotInterface(const std::string& config_file) {
     joint_q_ = std::vector<float>(motors_cfg_->motor_id_.size(), 0.0);
     joint_vel_ = std::vector<float>(motors_cfg_->motor_id_.size(), 0.0);
     joint_tau_ = std::vector<float>(motors_cfg_->motor_id_.size(), 0.0);
+
+    apply_action_thread_ = std::thread(&RobotInterface::apply_action_worker, this);
+}
+
+RobotInterface::~RobotInterface() {
+    {
+        std::lock_guard<std::mutex> lock(apply_action_queue_mutex_);
+        stop_apply_action_thread_ = true;
+    }
+    apply_action_queue_cv_.notify_all();
+    if (apply_action_thread_.joinable()) {
+        apply_action_thread_.join();
+    }
+    deinit_motors();
+    motors_.clear();
+    imu_.reset();
 }
 
 void RobotInterface::setup_motors(){
@@ -70,7 +89,78 @@ void RobotInterface::setup_imu(){
     imu_ = IMUDriver::create_imu(imu_cfg_->imu_id_, imu_cfg_->imu_interface_type_, imu_cfg_->imu_interface_, imu_cfg_->imu_type_, imu_cfg_->baudrate_);
 }
 
+void RobotInterface::configure_apply_action_thread() {
+    pthread_setname_np(pthread_self(), "apply_action");
+    cpu_set_t cpuset;
+    CPU_ZERO(&cpuset);
+    CPU_SET(6, &cpuset);
+    const int ret = pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
+    if (ret != 0) {
+        throw std::runtime_error("Failed to set apply_action thread affinity to core 6: " + std::string(std::strerror(ret)));
+    }
+}
+
+void RobotInterface::apply_action_worker() {
+    try {
+        configure_apply_action_thread();
+        while (true) {
+            std::pair<uint64_t, std::vector<float>> req;
+            {
+                std::unique_lock<std::mutex> lock(apply_action_queue_mutex_);
+                apply_action_queue_cv_.wait(lock, [this]() {
+                    return stop_apply_action_thread_ || !apply_action_queue_.empty();
+                });
+                if (stop_apply_action_thread_ && apply_action_queue_.empty()) {
+                    return;
+                }
+                req = std::move(apply_action_queue_.front());
+                apply_action_queue_.pop();
+            }
+
+            apply_action_impl(std::move(req.second));
+
+            {
+                std::lock_guard<std::mutex> lock(apply_action_queue_mutex_);
+                apply_action_done_seq_ = req.first;
+            }
+            apply_action_done_cv_.notify_all();
+        }
+    } catch (...) {
+        {
+            std::lock_guard<std::mutex> lock(apply_action_queue_mutex_);
+            apply_action_thread_exception_ = std::current_exception();
+            stop_apply_action_thread_ = true;
+        }
+        apply_action_done_cv_.notify_all();
+        apply_action_queue_cv_.notify_all();
+    }
+}
+
 void RobotInterface::apply_action(std::vector<float> action) {
+    if(!is_init_.load()){
+        return;
+    }
+    uint64_t seq = 0;
+    {
+        std::lock_guard<std::mutex> lock(apply_action_queue_mutex_);
+        if (apply_action_thread_exception_) {
+            std::rethrow_exception(apply_action_thread_exception_);
+        }
+        seq = ++apply_action_submit_seq_;
+        apply_action_queue_.emplace(seq, std::move(action));
+    }
+    apply_action_queue_cv_.notify_one();
+
+    std::unique_lock<std::mutex> lock(apply_action_queue_mutex_);
+    apply_action_done_cv_.wait(lock, [this, seq]() {
+        return apply_action_done_seq_ >= seq || stop_apply_action_thread_;
+    });
+    if (apply_action_thread_exception_) {
+        std::rethrow_exception(apply_action_thread_exception_);
+    }
+}
+
+void RobotInterface::apply_action_impl(std::vector<float> action) {
     if(!is_init_.load()){
         return;
     }
@@ -128,16 +218,16 @@ void RobotInterface::apply_action(std::vector<float> action) {
     }
 
     exec_motors_parallel([this, &action](std::shared_ptr<MotorDriver>& motor, int idx) {
-        if (idx != 0 && idx != 1 && idx != 2 && idx != 6 && idx != 7 && idx != 8 && idx != 12 && idx != 13 && idx != 14 && idx != 18 && idx != 19 && idx != 20) return;  // ✅ 只给 can0 的第一个电机发命令（global idx = 0）
+        // if (idx != 0 && idx != 1 && idx != 2 && idx != 6 && idx != 7 && idx != 8 && idx != 12 && idx != 13 && idx != 14 && idx != 18 && idx != 19 && idx != 20) return;  // ✅ 只给 can0 的第一个电机发命令（global idx = 0）
         if (std::find(close_chain_motor_idx_.begin(), close_chain_motor_idx_.end(), idx) == close_chain_motor_idx_.end()){
             motor->motor_mit_cmd(action[idx] * robot_cfg_->motor_sign_[idx], 0.0f, robot_cfg_->kp_[idx], robot_cfg_->kd_[idx], 0.0f);
         } else {
             motor->motor_mit_cmd(0.0f, 0.0f, 0.0f, 0.0f, action[idx] * robot_cfg_->motor_sign_[idx]);
         }
     });
-    // if (apply_action_test_publish_cb_) {
-    //     apply_action_test_publish_cb_();
-    // }
+    if (apply_action_test_publish_cb_) {
+        apply_action_test_publish_cb_();
+    }
 }
 
 void RobotInterface::reset_joints(std::vector<double> joint_default_angle) {

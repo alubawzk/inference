@@ -8,6 +8,7 @@
 #include <condition_variable>
 #include <algorithm>
 #include <memory>
+#include <thread>
 #include <Eigen/Geometry>
 #include <cmath>
 #include <chrono>
@@ -24,11 +25,7 @@
 class RobotInterface {
    public:
     RobotInterface(const std::string& config_file);
-    ~RobotInterface() {
-        deinit_motors();
-        motors_.clear();
-        imu_.reset();
-    }
+    ~RobotInterface();
     struct IMUCfg{
         int imu_id_, baudrate_;
         std::string imu_type_, imu_interface_type_, imu_interface_;
@@ -99,6 +96,15 @@ class RobotInterface {
     std::shared_ptr<Decouple> ankle_decouple_;
     std::vector<std::shared_ptr<MotorDriver>> motors_;
     std::unique_ptr<ThreadPool> thread_pool_;
+    std::thread apply_action_thread_;
+    std::mutex apply_action_queue_mutex_;
+    std::condition_variable apply_action_queue_cv_;
+    std::condition_variable apply_action_done_cv_;
+    std::queue<std::pair<uint64_t, std::vector<float>>> apply_action_queue_;
+    uint64_t apply_action_submit_seq_ = 0;
+    uint64_t apply_action_done_seq_ = 0;
+    bool stop_apply_action_thread_ = false;
+    std::exception_ptr apply_action_thread_exception_;
 
     std::mutex motors_mutex_, joint_mutex_;
     std::vector<float> joint_q_, joint_vel_, joint_tau_;
@@ -107,6 +113,9 @@ class RobotInterface {
 
     void setup_motors();
     void setup_imu();
+    void apply_action_worker();
+    void apply_action_impl(std::vector<float> action);
+    void configure_apply_action_thread();
 
     void exec_motors_parallel(std::function<void(std::shared_ptr<MotorDriver>&, int)> cmd_func);
 };
