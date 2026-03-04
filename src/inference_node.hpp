@@ -15,6 +15,7 @@
 #include <iostream>
 #include <queue>
 #include <sstream>
+#include <fstream>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/imu.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
@@ -75,6 +76,8 @@ class InferenceNode : public rclcpp::Node {
         }
         reset();
 
+        log_file_.open(std::string(ROOT_DIR) + "output.log", std::ios::out | std::ios::app);
+
         auto sensor_data_qos = rclcpp::QoS(rclcpp::KeepLast(1)).best_effort().durability_volatile();
         auto control_command_qos = rclcpp::QoS(rclcpp::KeepLast(1)).reliable().durability_volatile();
         joy_subscription_ = this->create_subscription<sensor_msgs::msg::Joy>(
@@ -103,8 +106,8 @@ class InferenceNode : public rclcpp::Node {
             inference_hz_test_publisher_->publish(hz_test_msg);
         });
         inference_thread_ = std::thread(&InferenceNode::inference, this);
-        timer_pub_ = this->create_wall_timer(std::chrono::microseconds(static_cast<int64_t>(dt_ * 1000000.0)),
-                                             std::bind(&InferenceNode::apply_action, this));
+        apply_action_thread_ = std::thread(&InferenceNode::apply_action, this);
+
 
         reset_joints_service_ = this->create_service<std_srvs::srv::Trigger>(
             "reset_joints", std::bind(&InferenceNode::reset_joints_srv, this, std::placeholders::_1, std::placeholders::_2));
@@ -131,9 +134,15 @@ class InferenceNode : public rclcpp::Node {
         if (inference_thread_.joinable()) {
             inference_thread_.join();
         }
+        if (apply_action_thread_.joinable()) {
+            apply_action_thread_.join();
+        }
         reset();
         if(robot_){
             robot_.reset();
+        }
+        if (log_file_.is_open()) {
+            log_file_.close();
         }
     }
     struct ModelContext {
@@ -171,14 +180,14 @@ class InferenceNode : public rclcpp::Node {
     rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr imu_publisher_;
     rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr joint_state_publisher_;
     rclcpp::Publisher<std_msgs::msg::Float32MultiArray>::SharedPtr inference_hz_test_publisher_;
-    rclcpp::TimerBase::SharedPtr timer_pub_;
     std::thread inference_thread_;
+    std::thread apply_action_thread_;
     float act_alpha_, gyro_alpha_, angle_alpha_;
     float dt_;
     float obs_scales_lin_vel_, obs_scales_ang_vel_, obs_scales_dof_pos_, obs_scales_dof_vel_,
         obs_scales_gravity_b_, clip_observations_;
     float action_scale_, clip_actions_, sine_freq_hz_, sine_amplitude_;
-    std::vector<double> clip_cmd_, joint_default_angle_, joint_limits_;
+    std::vector<double> clip_cmd_, joint_default_angle_, joint_limits_, sine_phase_offsets_;
     std::vector<long int> usd2urdf_;
     bool is_first_frame_;
     float gravity_z_upper_;
@@ -199,6 +208,7 @@ class InferenceNode : public rclcpp::Node {
     ModelContext* active_ctx_;
     rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr reset_joints_service_, set_zeros_service_, clear_errors_service_, refresh_joints_service_, read_joints_service_, read_imu_service_, init_motors_service_, deinit_motors_service_, start_inference_service_, stop_inference_service_;
 
+    std::ofstream log_file_;
     std::mutex act_mutex_, perception_mutex_, interrupt_mutex_, cmd_mutex_;
     std::vector<float> obs_, act_, last_act_, perception_obs_, motion_pos_, motion_vel_, joint_pos_, joint_vel_, cmd_vel_, quat_, ang_vel_, interrupt_action_, joint_torques_;
 

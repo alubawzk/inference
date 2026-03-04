@@ -169,6 +169,7 @@ void RobotInterface::apply_action_impl(std::vector<float> action) {
         std::unique_lock<std::mutex> lock(joint_mutex_);
         std::vector<std::function<void()>> tasks;
         exec_motors_parallel([this](std::shared_ptr<MotorDriver>& motor, int idx) {
+            // if (idx >= 12) return; // ✅ 只给 can0 的第一个电机发命令（global idx = 0）
             joint_q_[idx] = motor->get_motor_pos() * robot_cfg_->motor_sign_[idx];
             joint_vel_[idx] = motor->get_motor_spd() * robot_cfg_->motor_sign_[idx];
             joint_tau_[idx] = motor->get_motor_current() * robot_cfg_->motor_sign_[idx];
@@ -194,8 +195,8 @@ void RobotInterface::apply_action_impl(std::vector<float> action) {
             tau << robot_cfg_->kp_[idx1] * (action[idx1] - q[0]) + robot_cfg_->kd_[idx1] * (0.0f - vel[0]),
             robot_cfg_->kp_[idx2] * (action[idx2] - q[1]) + robot_cfg_->kd_[idx2] * (0.0f - vel[1]);
             ankle_decouple_->get_decoupleQVT(q, vel, tau, true);
-            action[idx1] = tau[0];
-            action[idx2] = tau[1];
+            // action[idx1] = tau[0];
+            // action[idx2] = tau[1];
             
             idx1 = close_chain_motor_idx_[2];
             idx2 = close_chain_motor_idx_[3];
@@ -212,17 +213,19 @@ void RobotInterface::apply_action_impl(std::vector<float> action) {
             tau << robot_cfg_->kp_[idx1] * (action[idx1] - q[0]) + robot_cfg_->kd_[idx1] * (0.0f - vel[0]),
             robot_cfg_->kp_[idx2] * (action[idx2] - q[1]) + robot_cfg_->kd_[idx2] * (0.0f - vel[1]);
             ankle_decouple_->get_decoupleQVT(q, vel, tau, false);
-            action[idx1] = tau[0];
-            action[idx2] = tau[1];
+            // action[idx1] = tau[0];
+            // action[idx2] = tau[1];
         }
     }
 
     exec_motors_parallel([this, &action](std::shared_ptr<MotorDriver>& motor, int idx) {
-        // if (idx != 0 && idx != 1 && idx != 2 && idx != 6 && idx != 7 && idx != 8 && idx != 12 && idx != 13 && idx != 14 && idx != 18 && idx != 19 && idx != 20) return;  // ✅ 只给 can0 的第一个电机发命令（global idx = 0）
+        // if (idx == 5 || idx == 11 || idx == 17 || idx == 22) return;  // ✅ 只给 can0 的第一个电机发命令（global idx = 0）
+        // if (idx >= 12) return;  // ✅ 只给 can0 的第一个电机发命令（global idx = 0）
         if (std::find(close_chain_motor_idx_.begin(), close_chain_motor_idx_.end(), idx) == close_chain_motor_idx_.end()){
             motor->motor_mit_cmd(action[idx] * robot_cfg_->motor_sign_[idx], 0.0f, robot_cfg_->kp_[idx], robot_cfg_->kd_[idx], 0.0f);
         } else {
-            motor->motor_mit_cmd(0.0f, 0.0f, 0.0f, 0.0f, action[idx] * robot_cfg_->motor_sign_[idx]);
+            // motor->motor_mit_cmd(0.0f, 0.0f, 0.0f, 0.0f, action[idx] * robot_cfg_->motor_sign_[idx]);
+            motor->motor_mit_cmd(action[idx] * robot_cfg_->motor_sign_[idx], 0.0f, robot_cfg_->kp_[idx], robot_cfg_->kd_[idx], 0.0f);
         }
     });
     if (apply_action_test_publish_cb_) {
@@ -261,6 +264,7 @@ void RobotInterface::refresh_joints() {
     {
         std::unique_lock<std::mutex> lock(joint_mutex_);
         exec_motors_parallel([this](std::shared_ptr<MotorDriver>& motor, int idx) {
+            // if (idx >= 12) return; // ✅ 只给 can0 的第一个电机发命令（global idx = 0）
             motor->refresh_motor_status();
             joint_q_[idx] = motor->get_motor_pos() * robot_cfg_->motor_sign_[idx];
             joint_vel_[idx] = motor->get_motor_spd() * robot_cfg_->motor_sign_[idx];
@@ -313,7 +317,7 @@ void RobotInterface::clear_errors() {
 
 void RobotInterface::init_motors() {
     exec_motors_parallel([](std::shared_ptr<MotorDriver>& motor, int idx) {
-        // if (idx != 0) return;  // ✅ 只给 can0 的第一个电机发命令（global idx = 0）
+        // if (idx >= 12) return; // ✅ 只给 can0 的第一个电机发命令（global idx = 0）
         motor->init_motor();
     });
     is_init_.store(true);

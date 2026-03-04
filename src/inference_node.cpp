@@ -84,16 +84,51 @@ void InferenceNode::reset() {
 }
 
 void InferenceNode::apply_action() {
-    if(!is_running_.load() || !robot_->is_init_.load()){
-        return;
+    pthread_setname_np(pthread_self(), "apply_action");
+    struct sched_param sp{}; sp.sched_priority = 98;
+    if (pthread_setschedparam(pthread_self(), SCHED_FIFO, &sp) != 0) {
+        throw std::runtime_error("Failed to set realtime priority for apply_action thread");
     }
-    {
-        std::unique_lock<std::mutex> lock(act_mutex_);
-        for (size_t i = 0; i < act_.size(); i++) {
-            act_[i] = act_alpha_ * act_[i] + (1 - act_alpha_) * last_act_[i];
+    cpu_set_t cpuset;
+    CPU_ZERO(&cpuset);
+    CPU_SET(7, &cpuset);
+    pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
+    rclcpp::Rate rate(1.0 / dt_); //400 1.0 / dt_ * decimation_
+    auto last_print_time = std::chrono::steady_clock::now();
+    auto last_loop_time = std::chrono::steady_clock::now();
+    uint64_t loop_count = 0;
+    while (rclcpp::ok()) {
+        if (!is_running_.load() || !robot_->is_init_.load()) {
+            last_loop_time = std::chrono::steady_clock::now();
+            rate.sleep();
+            continue;
         }
-        last_act_ = act_;
-        robot_->apply_action(act_);
+        {
+            std::unique_lock<std::mutex> lock(act_mutex_);
+            for (size_t i = 0; i < act_.size(); i++) {
+                act_[i] = act_alpha_ * act_[i] + (1 - act_alpha_) * last_act_[i];
+            }
+            last_act_ = act_;
+            robot_->apply_action(act_);
+        }
+        auto now = std::chrono::steady_clock::now();
+        auto dt_us = std::chrono::duration_cast<std::chrono::microseconds>(now - last_loop_time).count();
+        last_loop_time = now;
+        loop_count++;
+        if (std::chrono::duration_cast<std::chrono::seconds>(now - last_print_time).count() >= 1) {
+            RCLCPP_INFO(this->get_logger(), "[apply_action] freq=%.1f Hz, last_dt=%ld us",
+                static_cast<double>(loop_count), dt_us);
+            if (log_file_.is_open()) {
+                auto t_sec = std::chrono::duration_cast<std::chrono::seconds>(
+                    std::chrono::system_clock::now().time_since_epoch()).count();
+                log_file_ << "[" << t_sec << "] [apply_action] freq=" << static_cast<double>(loop_count)
+                          << " Hz, last_dt=" << dt_us << " us\n";
+                log_file_.flush();
+            }
+            loop_count = 0;
+            last_print_time = now;
+        }
+        rate.sleep();
     }
 }
 
@@ -103,6 +138,10 @@ void InferenceNode::inference() {
     if (pthread_setschedparam(pthread_self(), SCHED_FIFO, &sp) != 0) {
         throw std::runtime_error("Failed to set realtime priority for inference thread");
     }
+    cpu_set_t cpuset;
+    CPU_ZERO(&cpuset);
+    CPU_SET(6, &cpuset);
+    pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
     const double loop_hz = 1.0 / (dt_ * decimation_);
     rclcpp::Rate loop_rate(loop_hz);
     auto period = std::chrono::microseconds(static_cast<long long>(dt_ * 1000 * 1000 * decimation_));
@@ -166,14 +205,16 @@ void InferenceNode::inference() {
         for (int i = 0; i < joint_num_; i++) {
             obs_[offset + i] = (joint_pos_[usd2urdf_[i]] - joint_default_angle_[usd2urdf_[i]]) * obs_scales_dof_pos_;
             obs_[offset + joint_num_ + i] = joint_vel_[usd2urdf_[i]] * obs_scales_dof_vel_;
+            // std::cout << "obs_[offset + i]: " << obs_[offset + i] << std::endl;
+            // std::cout << "obs_[offset + joint_num_ + i]: " << obs_[offset + joint_num_ + i] << std::endl;
         }
-        for(size_t i = 0; i < joint_limits_.size() / 2; i++){
-            if(joint_pos_[i] < joint_limits_[i * 2] || joint_pos_[i] > joint_limits_[i * 2 + 1]){
-                RCLCPP_FATAL(this->get_logger(), "Joint %ld out of limit! Shutting down...", i+1);
-                rclcpp::shutdown();
-                return;
-            }
-        }
+        // for(size_t i = 0; i < joint_limits_.size() / 2; i++){
+        //     if(joint_pos_[i] < joint_limits_[i * 2] || joint_pos_[i] > joint_limits_[i * 2 + 1]){
+        //         RCLCPP_FATAL(this->get_logger(), "Joint %ld out of limit! Shutting down...", i+1);
+        //         rclcpp::shutdown();
+        //         return;
+        //     }
+        // }
         offset += joint_num_ * 2;
         publish_joint_states();
 
@@ -233,11 +274,11 @@ void InferenceNode::inference() {
         {
             std::unique_lock<std::mutex> lock(act_mutex_);
             constexpr double kSinePeriodSec = 20.0;
-            const float sine_action = sine_amplitude_ * static_cast<float>(
-                std::sin(2.0 * std::acos(-1.0) * (this->now().seconds() / kSinePeriodSec)));
+            const double base_phase = 2.0 * std::acos(-1.0) * (this->now().seconds() / kSinePeriodSec);
             for (int i = 0; i < active_ctx_->output_buffer.size(); i++) {
                 if (use_sine_trajectory_) {
-                    act_[usd2urdf_[i]] = sine_action;
+                    const double phase_offset = (i < static_cast<int>(sine_phase_offsets_.size())) ? sine_phase_offsets_[i] : 0.0;
+                    act_[usd2urdf_[i]] = sine_amplitude_ * static_cast<float>(std::sin(base_phase + phase_offset));
                 } else {
                     active_ctx_->output_buffer[i] = std::clamp(active_ctx_->output_buffer[i], -clip_actions_, clip_actions_);
                     act_[usd2urdf_[i]] = active_ctx_->output_buffer[i];
@@ -270,6 +311,10 @@ int main(int argc, char **argv) {
     if (pthread_setschedparam(pthread_self(), SCHED_FIFO, &sp) != 0) {
         throw std::runtime_error("Failed to set realtime priority for main thread");
     }
+    cpu_set_t cpuset;
+    CPU_ZERO(&cpuset);
+    CPU_SET(6, &cpuset);
+    pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
     rclcpp::init(argc, argv);
     try {
         auto node = std::make_shared<InferenceNode>();

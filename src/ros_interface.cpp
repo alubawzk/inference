@@ -40,6 +40,7 @@ void InferenceNode::load_config() {
     this->declare_parameter<std::vector<double>>("clip_cmd", std::vector<double>{});
     this->declare_parameter<std::vector<double>>("joint_default_angle", std::vector<double>{});
     this->declare_parameter<std::vector<double>>("joint_limits", std::vector<double>{});
+    this->declare_parameter<std::vector<double>>("sine_phase_offsets", std::vector<double>{});
 
 
     this->get_parameter("model_name", model_name_);
@@ -81,6 +82,7 @@ void InferenceNode::load_config() {
     this->get_parameter("clip_cmd", clip_cmd_);
     this->get_parameter("joint_default_angle", joint_default_angle_);
     this->get_parameter("joint_limits", joint_limits_);
+    this->get_parameter("sine_phase_offsets", sine_phase_offsets_);
 
 
     model_path_ = std::string(ROOT_DIR) + "models/" + model_name_;
@@ -120,6 +122,7 @@ void InferenceNode::load_config() {
     print_vector<double>("clip_cmd", clip_cmd_);
     print_vector<double>("joint_default_angle", joint_default_angle_);
     print_vector<double>("joint_limits", joint_limits_);
+    print_vector<double>("sine_phase_offsets", sine_phase_offsets_);
 }
 
 void InferenceNode::subs_joy_callback(const std::shared_ptr<sensor_msgs::msg::Joy> msg) {
